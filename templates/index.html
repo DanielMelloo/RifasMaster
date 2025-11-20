@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <h1 class="text-4xl font-bold text-white mb-2 text-center">Rifas Ativas</h1>
+    <p class="text-slate-400 text-center mb-12">Escolha sua sorte e participe agora mesmo!</p>
+
+    <div class="flex flex-wrap justify-center gap-8">
+        {% for raffle in raffles %}
+        <div class="w-full max-w-sm glass-card rounded-2xl overflow-hidden hover:transform hover:-translate-y-2 transition duration-300 group">
+            <div class="relative h-48 overflow-hidden">
+                {% if raffle.image_url %}
+                <img src="{{ raffle.image_url }}" alt="{{ raffle.title }}" class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
+                {% else %}
+                <div class="w-full h-full bg-slate-800 flex items-center justify-center">
+                    <span class="text-4xl">🎁</span>
+                </div>
+                {% endif %}
+                
+                <div class="absolute top-4 right-4 flex flex-col gap-2 items-end">
+                    <span class="bg-slate-950/80 backdrop-blur text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider border border-slate-800">
+                        {{ raffle.type }}
+                    </span>
+                    {% if raffle.is_promo %}
+                    <span class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider animate-pulse shadow-lg shadow-red-500/50">
+                        Promoção
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-white mb-2">{{ raffle.title }}</h3>
+                <p class="text-slate-400 text-sm mb-4 line-clamp-2">{{ raffle.description or 'Sem descrição.' }}</p>
+                
+                <!-- Progress Bar -->
+                <div class="mb-4">
+                    <div class="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>Progresso</span>
+                        <span>{{ ((raffle.tickets_count / raffle.total_numbers) * 100)|round|int }}%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div class="bg-violet-500 h-2 rounded-full transition-all duration-1000" style="width: {{ (raffle.tickets_count / raffle.total_numbers) * 100 }}%"></div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between mt-4">
+                    <div class="flex flex-col">
+                        <span class="text-slate-400 text-xs">Preço por número</span>
+                        <div class="flex items-baseline gap-2">
+                            {% if raffle.is_promo %}
+                                <span class="text-slate-500 line-through text-sm">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                                <span class="text-2xl font-bold text-green-400">R$ {{ "%.2f"|format(raffle.current_price) }}</span>
+                            {% else %}
+                                <span class="text-2xl font-bold text-violet-400">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <a href="{{ url_for('raffle_detail', raffle_id=raffle.id) }}" class="bg-white text-slate-950 hover:bg-violet-50 font-bold py-2 px-4 rounded-lg transition shadow-lg shadow-white/10">
+                        Participar
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-span-full text-center py-12">
+            <p class="text-slate-500 text-lg">Nenhuma rifa ativa no momento.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

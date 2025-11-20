@@ -1,0 +1,681 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <h1 class="text-3xl font-bold text-white">Painel Administrativo</h1>
+        <div class="flex gap-3">
+            <button onclick="document.getElementById('create-admin-modal').classList.remove('hidden')" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition">
+                + Novo Admin
+            </button>
+            <button onclick="document.getElementById('create-modal').classList.remove('hidden')" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg shadow-violet-500/20">
+                + Nova Rifa
+            </button>
+        </div>
+    </div>
+
+    <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-slate-300 whitespace-nowrap">
+                <thead class="bg-slate-800 text-slate-400 uppercase text-xs">
+                    <tr>
+                        <th class="px-6 py-4">Título</th>
+                        <th class="px-6 py-4">Tipo</th>
+                        <th class="px-6 py-4">Preço</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                    {% for raffle in raffles %}
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="px-6 py-4 font-medium text-white">{{ raffle.title }}</td>
+                        <td class="px-6 py-4">
+                            {% if raffle.type == 'manual' %}
+                                <span class="text-blue-400">Manual</span>
+                            {% else %}
+                                <span class="text-purple-400">Fazendinha</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if raffle.promo_price %}
+                                <span class="line-through text-slate-500 text-xs">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                                <span class="text-green-400 font-bold">R$ {{ "%.2f"|format(raffle.promo_price) }}</span>
+                            {% else %}
+                                R$ {{ "%.2f"|format(raffle.price) }}
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold {% if raffle.status == 'active' %}bg-green-500/20 text-green-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                                {{ raffle.status_text }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 flex gap-2 flex-wrap">
+                            <button onclick="openEditModal('{{ raffle.id }}', '{{ raffle.title }}', '{{ raffle.description|replace('\n', '\\n')|replace("'", "\\'") }}', '{{ raffle.price }}', '{{ raffle.promo_price or '' }}', '{{ raffle.promo_end or '' }}', '{{ raffle.image_url }}')" class="text-blue-400 hover:text-blue-300 font-medium transition text-sm">
+                                ✏️ Editar
+                            </button>
+                            
+                            {% if raffle.status == 'active' %}
+                            <form action="{{ url_for('draw_winner', raffle_id=raffle.id) }}" method="POST" onsubmit="return confirm('Tem certeza que deseja realizar o sorteio agora? A rifa será encerrada.')" class="inline">
+                                <button type="submit" class="text-violet-400 hover:text-violet-300 font-medium transition text-sm">
+                                    🎲 Sortear
+                                </button>
+                            </form>
+                            
+                            {% if raffle.promo_price %}
+                            <form action="{{ url_for('remove_promotion', raffle_id=raffle.id) }}" method="POST" onsubmit="return confirm('Remover promoção desta rifa?')" class="inline">
+                                <button type="submit" class="text-yellow-400 hover:text-yellow-300 font-medium transition text-sm">
+                                    🚫 Remover Promoção
+                                </button>
+                            </form>
+                            {% else %}
+                            <button onclick="openPromoModal('{{ raffle.id }}', '{{ raffle.title }}', '{{ raffle.price }}')" class="text-green-400 hover:text-green-300 font-medium transition text-sm">
+                                ➕ Adicionar Promoção
+                            </button>
+                            {% endif %}
+                            
+                            {% if raffle.tickets_count == 0 and raffle.status != 'closed' %}
+                            <form action="{{ url_for('delete_raffle', raffle_id=raffle.id) }}" method="POST" onsubmit="return confirm('ATENÇÃO: Deletar esta rifa permanentemente? Esta ação não pode ser desfeita!')" class="inline">
+                                <button type="submit" class="text-red-400 hover:text-red-300 font-medium transition text-sm">
+                                    🗑️ Deletar
+                                </button>
+                            </form>
+                            {% endif %}
+                            
+                            {% elif raffle.status == 'closed' and raffle.winner_ticket_id %}
+                            <button onclick="showWinnerDetails({{ raffle.id }})" class="text-green-400 hover:text-green-300 font-medium transition text-sm">
+                                🏆 Detalhes Vencedor
+                            </button>
+                            {% else %}
+                            <span class="text-slate-500 text-sm">Encerrada</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-8 text-center text-slate-500">Nenhuma rifa encontrada.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create Raffle Modal -->
+<div id="create-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-slate-950 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="document.getElementById('create-modal').classList.add('hidden')"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom glass-card rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <form action="{{ url_for('create_raffle') }}" method="POST" enctype="multipart/form-data" class="p-6">
+                <h3 class="text-xl font-bold text-white mb-4">Nova Rifa</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Título</label>
+                        <input type="text" name="title" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Descrição</label>
+                        <textarea name="description" rows="3" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none"></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-1">Preço (R$)</label>
+                            <input type="number" step="0.01" name="price" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-1">Total Números</label>
+                            <input type="number" name="total_numbers" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                        </div>
+                    </div>
+                    
+                    <!-- Promoção -->
+                    <div class="border-t border-slate-700 pt-4 mt-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="text-sm font-bold text-violet-400">Promoção</h4>
+                            <button type="button" onclick="openPromoModalForCreate()" class="text-xs bg-violet-600 hover:bg-violet-700 text-white px-3 py-1 rounded transition shadow-lg shadow-violet-500/20">
+                                ⚙️ Configurar Promoção
+                            </button>
+                        </div>
+                        
+                        <div id="create-promo-display" class="hidden bg-slate-800/50 p-3 rounded-lg border border-green-500/30">
+                            <p class="text-sm text-green-400 font-bold">Promoção Ativa!</p>
+                            <p class="text-xs text-slate-400 mt-1">Preço: R$ <span id="display-promo-price"></span></p>
+                            <p class="text-xs text-slate-400">Fim: <span id="display-promo-end"></span></p>
+                            <button type="button" onclick="clearCreatePromo()" class="text-xs text-red-400 hover:text-red-300 mt-2 underline">Remover Promoção</button>
+                        </div>
+
+                        <input type="hidden" name="promo_price" id="create-hidden-promo-price">
+                        <input type="hidden" name="promo_end" id="create-hidden-promo-end">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Tipo</label>
+                        <select name="type" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                            <option value="manual">Seleção Manual</option>
+                            <option value="random">Aleatório (Fazendinha)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Drag and Drop Upload -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Imagem</label>
+                        <div class="drop-zone w-full h-32 border-2 border-dashed border-slate-600 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-violet-500 hover:bg-slate-800/50 transition relative">
+                            <input type="file" name="image_file" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                            <div class="text-center pointer-events-none">
+                                <p class="text-slate-400 text-sm">Arraste uma imagem ou clique aqui</p>
+                                <p class="text-slate-600 text-xs mt-1">PNG, JPG, GIF</p>
+                            </div>
+                            <div class="preview-container hidden absolute inset-0 z-0 p-2">
+                                <img src="" class="w-full h-full object-contain rounded">
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <input type="text" name="image_url" placeholder="Ou cole uma URL externa" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none text-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button type="button" onclick="document.getElementById('create-modal').classList.add('hidden')" class="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-bold shadow-lg shadow-violet-500/20 transition">Criar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Raffle Modal -->
+<div id="edit-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-slate-950 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="document.getElementById('edit-modal').classList.add('hidden')"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom glass-card rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <form id="edit-form" method="POST" enctype="multipart/form-data" class="p-6">
+                <h3 class="text-xl font-bold text-white mb-4">Editar Rifa</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Título</label>
+                        <input type="text" name="title" id="edit-title" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Descrição</label>
+                        <textarea name="description" id="edit-description" rows="3" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Preço (R$)</label>
+                        <input type="number" step="0.01" name="price" id="edit-price" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                    
+                    <!-- Promoção -->
+                    
+                    <!-- Drag and Drop Upload (Edit) -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Imagem</label>
+                        <div class="drop-zone w-full h-32 border-2 border-dashed border-slate-600 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-violet-500 hover:bg-slate-800/50 transition relative">
+                            <input type="file" name="image_file" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                            <div class="text-center pointer-events-none">
+                                <p class="text-slate-400 text-sm">Arraste uma imagem ou clique aqui</p>
+                                <p class="text-slate-600 text-xs mt-1">PNG, JPG, GIF</p>
+                            </div>
+                            <div class="preview-container hidden absolute inset-0 z-0 p-2">
+                                <img src="" class="w-full h-full object-contain rounded">
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <input type="text" name="image_url" id="edit-image-url" placeholder="Ou cole uma URL externa" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none text-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button type="button" onclick="document.getElementById('edit-modal').classList.add('hidden')" class="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-500/20 transition">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Create Admin Modal (Same as before) -->
+<div id="create-admin-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-slate-950 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="document.getElementById('create-admin-modal').classList.add('hidden')"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom glass-card rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <form action="{{ url_for('create_admin_user') }}" method="POST" class="p-6">
+                <h3 class="text-xl font-bold text-white mb-4">Novo Administrador</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Nome</label>
+                        <input type="text" name="username" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Email</label>
+                        <input type="email" name="email" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-400 mb-1">Senha</label>
+                        <input type="password" name="password" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-violet-500 outline-none">
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button type="button" onclick="document.getElementById('create-admin-modal').classList.add('hidden')" class="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-bold shadow-lg shadow-violet-500/20 transition">Criar Admin</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id, title, description, price, promoPrice, promoEnd, imageUrl) {
+        document.getElementById('edit-form').action = '/admin/edit_raffle/' + id;
+        document.getElementById('edit-title').value = title;
+        document.getElementById('edit-description').value = description;
+        document.getElementById('edit-price').value = price;
+        // document.getElementById('edit-promo-price').value = promoPrice;
+        // document.getElementById('edit-promo-end').value = promoEnd;
+        document.getElementById('edit-image-url').value = imageUrl;
+        
+        // Preview image if URL exists
+        if (imageUrl) {
+            const previewContainer = document.querySelector('#edit-modal .preview-container');
+            const previewImg = previewContainer.querySelector('img');
+            previewImg.src = imageUrl;
+            previewContainer.classList.remove('hidden');
+        }
+        
+        // Initialize promo fields visibility
+        // if (promoPrice || promoEnd) {
+        //     toggleEditPromo(true);
+        // } else {
+        //     toggleEditPromo(false);
+        // }
+        
+        document.getElementById('edit-modal').classList.remove('hidden');
+    }
+    
+    function openEditModalWithPromo(id, title, description, price, imageUrl) {
+        // Open edit modal with promotion section already expanded
+        openEditModal(id, title, description, price, '', '', imageUrl);
+        toggleEditPromo(true);
+    }
+    
+    // Drag and Drop Logic
+    const dropZones = document.querySelectorAll('.drop-zone');
+    
+    dropZones.forEach(zone => {
+        const input = zone.querySelector('input[type="file"]');
+        const previewContainer = zone.querySelector('.preview-container');
+        const previewImg = previewContainer.querySelector('img');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            zone.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight(e) {
+            zone.classList.add('border-violet-500', 'bg-slate-800/50');
+        }
+        
+        function unhighlight(e) {
+            zone.classList.remove('border-violet-500', 'bg-slate-800/50');
+        }
+        
+        zone.addEventListener('drop', handleDrop, false);
+        input.addEventListener('change', handleFiles, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            input.files = files;
+            handleFiles({ target: input });
+        }
+        
+        function handleFiles(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        previewImg.src = e.target.result;
+                        previewContainer.classList.remove('hidden');
+                    }
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+    });
+    
+    // Winner Details Modal
+    function showWinnerDetails(raffleId) {
+        fetch(`/admin/winner_details/${raffleId}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('winner-modal-title').textContent = data.raffle_title;
+                document.getElementById('winner-name').textContent = data.full_name || data.username;
+                document.getElementById('winner-email').textContent = data.email;
+                document.getElementById('winner-phone').textContent = data.phone || 'Não informado';
+                document.getElementById('winner-cpf').textContent = data.cpf || 'Não informado';
+                document.getElementById('winner-pix').textContent = data.pix_key || 'Não informado';
+                document.getElementById('winner-address').textContent = data.address || 'Não informado';
+                document.getElementById('winner-number').textContent = data.winning_number;
+                document.getElementById('winner-purchase-date').textContent = new Date(data.purchase_date).toLocaleDateString('pt-BR');
+                document.getElementById('winner-modal').classList.remove('hidden');
+            })
+            .catch(error => {
+                alert('Erro ao carregar detalhes do ganhador.');
+                console.error('Error:', error);
+            });
+    }
+    
+    function closeWinnerModal() {
+        document.getElementById('winner-modal').classList.add('hidden');
+    }
+    
+    // ESC key handler to close modals
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' || e.key === 'Esc') {
+            // Close all open modals
+            document.getElementById('create-modal').classList.add('hidden');
+            document.getElementById('edit-modal').classList.add('hidden');
+            document.getElementById('admin-modal').classList.add('hidden');
+            document.getElementById('winner-modal').classList.add('hidden');
+        }
+    });
+</script>
+
+<!-- Winner Details Modal -->
+<div id="winner-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-black/80" aria-labelledby="modal-title" role="dialog" aria-modal="true" onclick="if(event.target === this) closeWinnerModal()">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="glass-card rounded-2xl p-8 max-w-md w-full relative" onclick="event.stopPropagation()">
+            <button onclick="closeWinnerModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl">&times;</button>
+            
+            <div class="text-center mb-6">
+                <div class="text-6xl mb-4">🏆</div>
+                <h3 id="winner-modal-title" class="text-2xl font-bold text-white mb-2"></h3>
+                <p class="text-slate-400 text-sm">Detalhes do Ganhador</p>
+            </div>
+            
+            <div class="space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
+                <div class="bg-slate-800/50 p-4 rounded-xl">
+                    <p class="text-sm text-slate-400 mb-1">Vencedor</p>
+                    <p id="winner-name" class="text-white font-bold text-lg"></p>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">Email</p>
+                        <p id="winner-email" class="text-white font-medium break-all"></p>
+                    </div>
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">Telefone</p>
+                        <p id="winner-phone" class="text-white font-medium"></p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">CPF</p>
+                        <p id="winner-cpf" class="text-white font-medium"></p>
+                    </div>
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">Chave PIX</p>
+                        <p id="winner-pix" class="text-white font-medium break-all"></p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/50 p-4 rounded-xl">
+                    <p class="text-sm text-slate-400 mb-1">Endereço</p>
+                    <p id="winner-address" class="text-white font-medium"></p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">Número Sorteado</p>
+                        <p id="winner-number" class="text-yellow-400 font-bold text-2xl"></p>
+                    </div>
+                    
+                    <div class="bg-slate-800/50 p-4 rounded-xl">
+                        <p class="text-sm text-slate-400 mb-1">Data da Compra</p>
+                        <p id="winner-purchase-date" class="text-white font-medium"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <button onclick="closeWinnerModal()" class="w-full mt-6 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl transition">
+                Fechar
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Promotion Modal -->
+<div id="promo-modal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h3 class="text-2xl font-bold text-white mb-4">⏰ Configurar Promoção</h3>
+        
+        <form id="promo-form" action="" method="POST">
+            <!-- Raffle Info -->
+            <div class="mb-4">
+                <p class="text-slate-400 text-sm">Rifa: <span id="promo-raffle-title" class="text-white font-medium"></span></p>
+                <p class="text-slate-400 text-sm">Preço normal: R$ <span id="promo-raffle-price" class="text-white font-medium"></span></p>
+            </div>
+            
+            <!-- Promo Price -->
+            <div class="mb-4">
+                <label class="block text-white font-medium mb-2">Preço Promocional *</label>
+                <input type="number" step="0.01" name="promo_price" id="promo-price" required 
+                    class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-violet-500 focus:outline-none">
+            </div>
+            
+            <!-- Toggle between Timer and Date -->
+            <div class="mb-4">
+                <label class="block text-white font-medium mb-2">Duração da Promoção</label>
+                <div class="flex gap-2 mb-3">
+                    <button type="button" onclick="selectPromoType('timer')" id="btn-timer"
+                        class="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white font-medium transition">
+                        ⏱️ Timer
+                    </button>
+                    <button type="button" onclick="selectPromoType('date')" id="btn-date"
+                        class="flex-1 px-4 py-2 rounded-lg bg-slate-700 text-slate-400 font-medium transition">
+                        📅 Data Limite
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Timer Option -->
+            <div id="timer-option" class="mb-4">
+                <label class="block text-white font-medium mb-2">Duração</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <input type="number" id="timer-value" min="1" value="7" 
+                            class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-violet-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <select id="timer-unit" 
+                            class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-violet-500 focus:outline-none">
+                            <option value="hours">Horas</option>
+                            <option value="days" selected>Dias</option>
+                            <option value="weeks">Semanas</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-500 mt-1">Data limite calculada: <span id="calculated-date" class="text-violet-400"></span></p>
+            </div>
+            
+            <!-- Date Option -->
+            <div id="date-option" class="mb-4 hidden">
+                <label class="block text-white font-medium mb-2">Data e Hora Limite</label>
+                <input type="datetime-local" id="promo-end-input" 
+                    class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-violet-500 focus:outline-none">
+            </div>
+            
+            <!-- Hidden field for actual promo_end value -->
+            <input type="hidden" name="promo_end" id="promo-end-hidden">
+            
+            <div class="flex gap-2 mt-6">
+                <button type="button" onclick="closePromoModal()" class="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl transition">
+                    Cancelar
+                </button>
+                <button type="submit" class="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition">
+                    Salvar Promoção
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let currentPromoType = 'timer';
+let isCreateMode = false;
+
+function openPromoModal(raffleId, raffleTitle, rafflePrice) {
+    isCreateMode = false;
+    document.getElementById('promo-raffle-title').textContent = raffleTitle;
+    document.getElementById('promo-raffle-price').textContent = rafflePrice;
+    document.getElementById('promo-form').action = `/admin/set_promotion/${raffleId}`;
+    document.getElementById('promo-modal').classList.remove('hidden');
+    
+    // Reset form
+    document.getElementById('promo-price').value = '';
+    selectPromoType('timer');
+    updateCalculatedDate();
+}
+
+function openPromoModalForCreate() {
+    isCreateMode = true;
+    document.getElementById('promo-raffle-title').textContent = "Nova Rifa";
+    document.getElementById('promo-raffle-price').textContent = "Definido na criação";
+    document.getElementById('promo-form').removeAttribute('action'); // Remove action to prevent submit
+    document.getElementById('promo-modal').classList.remove('hidden');
+    
+    // Reset form
+    document.getElementById('promo-price').value = '';
+    selectPromoType('timer');
+    updateCalculatedDate();
+}
+
+function closePromoModal() {
+    document.getElementById('promo-modal').classList.add('hidden');
+}
+
+function selectPromoType(type) {
+    currentPromoType = type;
+    
+    // Update buttons
+    if (type === 'timer') {
+        document.getElementById('btn-timer').className = 'flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white font-medium transition';
+        document.getElementById('btn-date').className = 'flex-1 px-4 py-2 rounded-lg bg-slate-700 text-slate-400 font-medium transition';
+        document.getElementById('timer-option').classList.remove('hidden');
+        document.getElementById('date-option').classList.add('hidden');
+        updateCalculatedDate();
+    } else {
+        document.getElementById('btn-date').className = 'flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white font-medium transition';
+        document.getElementById('btn-timer').className = 'flex-1 px-4 py-2 rounded-lg bg-slate-700 text-slate-400 font-medium transition';
+        document.getElementById('timer-option').classList.add('hidden');
+        document.getElementById('date-option').classList.remove('hidden');
+    }
+}
+
+function updateCalculatedDate() {
+    const value = parseInt(document.getElementById('timer-value').value) || 1;
+    const unit = document.getElementById('timer-unit').value;
+    
+    let hours = 0;
+    if (unit === 'hours') hours = value;
+    else if (unit === 'days') hours = value * 24;
+    else if (unit === 'weeks') hours = value * 24 * 7;
+    
+    const now = new Date();
+    const endDate = new Date(now.getTime() + hours * 60 * 60 * 1000);
+    
+    document.getElementById('calculated-date').textContent = endDate.toLocaleString('pt-BR');
+}
+
+function clearCreatePromo() {
+    document.getElementById('create-hidden-promo-price').value = '';
+    document.getElementById('create-hidden-promo-end').value = '';
+    document.getElementById('create-promo-display').classList.add('hidden');
+}
+
+// Update calculated date on input change
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('timer-value').addEventListener('input', updateCalculatedDate);
+    document.getElementById('timer-unit').addEventListener('change', updateCalculatedDate);
+    
+    // On form submit
+    document.getElementById('promo-form').addEventListener('submit', function(e) {
+        let finalDate = '';
+        
+        if (currentPromoType === 'timer') {
+            const value = parseInt(document.getElementById('timer-value').value) || 1;
+            const unit = document.getElementById('timer-unit').value;
+            
+            let hours = 0;
+            if (unit === 'hours') hours = value;
+            else if (unit === 'days') hours = value * 24;
+            else if (unit === 'weeks') hours = value * 24 * 7;
+            
+            const now = new Date();
+            const endDate = new Date(now.getTime() + hours * 60 * 60 * 1000);
+            
+            // Format as YYYY-MM-DD HH:MM:SS
+            finalDate = endDate.getFullYear() + '-' +
+                String(endDate.getMonth() + 1).padStart(2, '0') + '-' +
+                String(endDate.getDate()).padStart(2, '0') + ' ' +
+                String(endDate.getHours()).padStart(2, '0') + ':' +
+                String(endDate.getMinutes()).padStart(2, '0') + ':' +
+                String(endDate.getSeconds()).padStart(2, '0');
+            
+        } else {
+            const dateValue = document.getElementById('promo-end-input').value;
+            if (dateValue) {
+                finalDate = dateValue.replace('T', ' ') + ':00';
+            } else {
+                e.preventDefault();
+                alert('Por favor, selecione uma data limite.');
+                return;
+            }
+        }
+
+        if (isCreateMode) {
+            e.preventDefault(); // Stop form submission
+            const price = document.getElementById('promo-price').value;
+            if (!price) {
+                alert('Por favor, informe o preço promocional.');
+                return;
+            }
+            
+            // Update hidden fields in create modal
+            document.getElementById('create-hidden-promo-price').value = price;
+            document.getElementById('create-hidden-promo-end').value = finalDate;
+            
+            // Update display
+            document.getElementById('display-promo-price').textContent = parseFloat(price).toFixed(2);
+            document.getElementById('display-promo-end').textContent = new Date(finalDate).toLocaleString('pt-BR');
+            document.getElementById('create-promo-display').classList.remove('hidden');
+            
+            closePromoModal();
+        } else {
+            // Normal mode: set hidden field and allow submit
+            document.getElementById('promo-end-hidden').value = finalDate;
+        }
+    });
+});
+</script>
+
+{% endblock %}

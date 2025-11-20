@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-col lg:flex-row justify-center gap-8">
+        <!-- Raffle Info -->
+        <div class="space-y-6 w-full lg:w-1/2 max-w-2xl">
+            <div class="glass-card p-2 rounded-2xl overflow-hidden relative">
+                {% if raffle.image_url %}
+                <img src="{{ raffle.image_url }}" alt="{{ raffle.title }}" class="w-full h-64 md:h-80 object-cover rounded-xl">
+                {% else %}
+                <div class="w-full h-64 md:h-80 bg-slate-800 flex items-center justify-center rounded-xl">
+                    <span class="text-6xl">🎁</span>
+                </div>
+                {% endif %}
+                
+                {% if raffle.is_promo %}
+                <div class="absolute top-4 right-4">
+                    <span class="bg-red-500 text-white text-sm font-bold px-4 py-2 rounded-full uppercase tracking-wider animate-pulse shadow-lg shadow-red-500/50">
+                        Promoção Relâmpago! ⚡
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="glass-card p-6 rounded-2xl">
+                <h1 class="text-3xl font-bold text-white mb-2">{{ raffle.title }}</h1>
+                
+                {% if raffle.description %}
+                <p class="text-slate-400 mb-4 text-sm leading-relaxed">{{ raffle.description }}</p>
+                {% endif %}
+                
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <p class="text-slate-400 text-sm">Preço por número</p>
+                        <div class="flex items-baseline gap-2">
+                            {% if raffle.is_promo %}
+                                <span class="text-slate-500 line-through text-lg">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                                <span class="text-3xl font-bold text-green-400">R$ {{ "%.2f"|format(raffle.current_price) }}</span>
+                            {% else %}
+                                <span class="text-2xl font-bold text-violet-400">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-slate-400 text-sm">Status</p>
+                        <span class="px-3 py-1 rounded-full text-sm font-bold {% if raffle.status == 'active' %}bg-green-500/20 text-green-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                            {{ raffle.status }}
+                        </span>
+                    </div>
+                </div>
+                
+                {% if raffle.is_promo and raffle.promo_end %}
+                <div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl mb-6 text-center">
+                    <p class="text-red-400 text-sm font-bold mb-1">Aproveite! A promoção acaba em:</p>
+                    <p class="text-white font-mono text-lg" id="countdown">Calculando...</p>
+                    <script>
+                        // Simple countdown
+                        const endDate = new Date("{{ raffle.promo_end }}").getTime();
+                        const x = setInterval(function() {
+                            const now = new Date().getTime();
+                            const distance = endDate - now;
+                            
+                            if (distance < 0) {
+                                clearInterval(x);
+                                document.getElementById("countdown").innerHTML = "EXPIRADA";
+                                location.reload(); // Reload to update price
+                                return;
+                            }
+                            
+                            const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+                            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                            
+                            document.getElementById("countdown").innerHTML = days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
+                        }, 1000);
+                    </script>
+                </div>
+                {% endif %}
+
+                {% if raffle.status == 'active' %}
+                    {% if raffle.type == 'manual' %}
+                        <div class="bg-slate-800/50 p-4 rounded-xl mb-6">
+                            <h3 class="text-white font-bold mb-2">Como comprar:</h3>
+                            <ol class="list-decimal list-inside text-slate-400 text-sm space-y-1">
+                                <li>Escolha seus números abaixo</li>
+                                <li>Clique em "Comprar Bilhetes"</li>
+                                <li>Realize o pagamento</li>
+                            </ol>
+                        </div>
+                    {% else %}
+                        <!-- Fazendinha / Random -->
+                        <form action="{{ url_for('buy_ticket', raffle_id=raffle.id) }}" method="POST" class="space-y-6">
+                            
+                            <!-- Quantidade Restante -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl flex justify-between items-center">
+                                <span class="text-slate-400 text-sm">Bilhetes Disponíveis:</span>
+                                <span class="text-white font-bold text-lg">{{ raffle.total_numbers - raffle.tickets|length }}</span>
+                            </div>
+
+                            <div>
+                                <label class="block text-white font-bold mb-3">Quantidade de Bilhetes</label>
+                                
+                                <!-- Presets -->
+                                <style>
+                                    /* Hide spin buttons */
+                                    input[type=number]::-webkit-inner-spin-button, 
+                                    input[type=number]::-webkit-outer-spin-button { 
+                                        -webkit-appearance: none; 
+                                        margin: 0; 
+                                    }
+                                    input[type=number] {
+                                        -moz-appearance: textfield;
+                                    }
+                                </style>
+                                <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+                                    <button type="button" onclick="setQuantity(1)" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+1</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.05)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.05)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.10)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.10)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.15)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.15)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.20)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.20)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.25)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.25)|int }}</button>
+                                </div>
+
+                                <div class="flex items-center space-x-4">
+                                    <button type="button" onclick="decrementQuantity()" class="w-12 h-12 rounded-xl bg-slate-700 text-white hover:bg-slate-600 font-bold text-2xl flex items-center justify-center transition shadow-lg">-</button>
+                                    <input type="number" name="quantity" id="quantity" value="1" min="1" max="{{ raffle.total_numbers - raffle.tickets|length }}" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl text-center text-white font-bold text-xl py-3 focus:ring-2 focus:ring-violet-500 outline-none">
+                                    <button type="button" onclick="incrementQuantity()" class="w-12 h-12 rounded-xl bg-slate-700 text-white hover:bg-slate-600 font-bold text-2xl flex items-center justify-center transition shadow-lg">+</button>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-violet-500/20 flex items-center justify-center gap-2 transform hover:scale-[1.02]">
+                                <span>Comprar Agora</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </form>
+                        <script>
+                            const maxQty = {{ raffle.total_numbers - raffle.tickets|length }};
+                            const input = document.getElementById('quantity');
+
+                            function incrementQuantity() {
+                                let val = parseInt(input.value) || 0;
+                                if (val < maxQty) input.value = val + 1;
+                            }
+                            function decrementQuantity() {
+                                let val = parseInt(input.value) || 0;
+                                if (val > 1) input.value = val - 1;
+                            }
+                            function setQuantity(amount) {
+                                let current = parseInt(input.value) || 0;
+                                let newVal = current + amount;
+                                // Option to add TO current or SET current? 
+                                // User said "adicionar à quantidade que será comprada" (add to quantity to be bought)
+                                // But usually presets set the value. "adicionar" might mean "add to cart" logic or "increase counter".
+                                // Given "opções de adicionar: 1, 10...", let's assume it ADDS to the current input value.
+                                if (newVal > maxQty) newVal = maxQty;
+                                input.value = newVal;
+                            }
+                        </script>
+                    {% endif %}
+                {% else %}
+                    <div class="bg-slate-800/50 p-6 rounded-xl text-center">
+                        <p class="text-slate-400 mb-2">Esta rifa foi encerrada.</p>
+                        {% if raffle.winner_ticket_id %}
+                        <div class="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <p class="text-yellow-500 font-bold text-lg">🏆 Vencedor Sorteado!</p>
+                            <!-- We might not have winner info here unless passed, but dashboard has it. -->
+                        </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Ticket Selection (Manual Only) -->
+        {% if raffle.type == 'manual' and raffle.status == 'active' %}
+        <div class="glass-card p-6 rounded-2xl w-full lg:w-1/2 max-w-2xl">
+            <h2 class="text-xl font-bold text-white mb-4">Escolha seus números</h2>
+            
+            <form action="{{ url_for('buy_ticket', raffle_id=raffle.id) }}" method="POST">
+                <div class="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2 mb-6 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                    {% for i in range(1, raffle.total_numbers + 1) %}
+                        {% set ns = namespace(status='available') %}
+                        {% for ticket in raffle.tickets %}
+                            {% if ticket.number == i %}
+                                {% if ticket.status == 'paid' %}
+                                    {% set ns.status = 'sold' %}
+                                {% else %}
+                                    {% set ns.status = 'reserved' %}
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if ns.status == 'available' %}
+                        <label class="relative cursor-pointer group">
+                            <input type="checkbox" name="numbers" value="{{ i }}" class="peer sr-only">
+                            <div class="aspect-square rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-sm transition peer-checked:bg-violet-600 peer-checked:text-white peer-checked:border-violet-500 peer-checked:shadow-[0_0_10px_rgba(124,58,237,0.5)] hover:border-violet-500/50">
+                                {{ i }}
+                            </div>
+            <div class="glass-card p-2 rounded-2xl overflow-hidden relative">
+                {% if raffle.image_url %}
+                <img src="{{ raffle.image_url }}" alt="{{ raffle.title }}" class="w-full h-64 md:h-80 object-cover rounded-xl">
+                {% else %}
+                <div class="w-full h-64 md:h-80 bg-slate-800 flex items-center justify-center rounded-xl">
+                    <span class="text-6xl">🎁</span>
+                </div>
+                {% endif %}
+                
+                {% if raffle.is_promo %}
+                <div class="absolute top-4 right-4">
+                    <span class="bg-red-500 text-white text-sm font-bold px-4 py-2 rounded-full uppercase tracking-wider animate-pulse shadow-lg shadow-red-500/50">
+                        Promoção Relâmpago! ⚡
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="glass-card p-6 rounded-2xl">
+                <h1 class="text-3xl font-bold text-white mb-2">{{ raffle.title }}</h1>
+                
+                {% if raffle.description %}
+                <p class="text-slate-400 mb-4 text-sm leading-relaxed">{{ raffle.description }}</p>
+                {% endif %}
+                
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <p class="text-slate-400 text-sm">Preço por número</p>
+                        <div class="flex items-baseline gap-2">
+                            {% if raffle.is_promo %}
+                                <span class="text-slate-500 line-through text-lg">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                                <span class="text-3xl font-bold text-green-400">R$ {{ "%.2f"|format(raffle.current_price) }}</span>
+                            {% else %}
+                                <span class="text-2xl font-bold text-violet-400">R$ {{ "%.2f"|format(raffle.price) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-slate-400 text-sm">Status</p>
+                        <span class="px-3 py-1 rounded-full text-sm font-bold {% if raffle.status == 'active' %}bg-green-500/20 text-green-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                            {{ raffle.status }}
+                        </span>
+                    </div>
+                </div>
+                
+                {% if raffle.is_promo and raffle.promo_end %}
+                <div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl mb-6 text-center">
+                    <p class="text-red-400 text-sm font-bold mb-1">Aproveite! A promoção acaba em:</p>
+                    <p class="text-white font-mono text-lg" id="countdown">Calculando...</p>
+                    <script>
+                        // Simple countdown
+                        const endDate = new Date("{{ raffle.promo_end }}").getTime();
+                        const x = setInterval(function() {
+                            const now = new Date().getTime();
+                            const distance = endDate - now;
+                            
+                            if (distance < 0) {
+                                clearInterval(x);
+                                document.getElementById("countdown").innerHTML = "EXPIRADA";
+                                location.reload(); // Reload to update price
+                                return;
+                            }
+                            
+                            const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+                            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                            
+                            document.getElementById("countdown").innerHTML = days + "d " + hours + "h " + minutes + "m " + seconds + "s ";
+                        }, 1000);
+                    </script>
+                </div>
+                {% endif %}
+
+                {% if raffle.status == 'active' %}
+                    {% if raffle.type == 'manual' %}
+                        <div class="bg-slate-800/50 p-4 rounded-xl mb-6">
+                            <h3 class="text-white font-bold mb-2">Como comprar:</h3>
+                            <ol class="list-decimal list-inside text-slate-400 text-sm space-y-1">
+                                <li>Escolha seus números abaixo</li>
+                                <li>Clique em "Comprar Bilhetes"</li>
+                                <li>Realize o pagamento</li>
+                            </ol>
+                        </div>
+                    {% else %}
+                        <!-- Fazendinha / Random -->
+                        <form action="{{ url_for('buy_ticket', raffle_id=raffle.id) }}" method="POST" class="space-y-6">
+                            
+                            <!-- Quantidade Restante -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl flex justify-between items-center">
+                                <span class="text-slate-400 text-sm">Bilhetes Disponíveis:</span>
+                                <span class="text-white font-bold text-lg">{{ raffle.total_numbers - raffle.tickets|length }}</span>
+                            </div>
+
+                            <div>
+                                <label class="block text-white font-bold mb-3">Quantidade de Bilhetes</label>
+                                
+                                <!-- Presets -->
+                                <style>
+                                    /* Hide spin buttons */
+                                    input[type=number]::-webkit-inner-spin-button, 
+                                    input[type=number]::-webkit-outer-spin-button { 
+                                        -webkit-appearance: none; 
+                                        margin: 0; 
+                                    }
+                                    input[type=number] {
+                                        -moz-appearance: textfield;
+                                    }
+                                </style>
+                                <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+                                    <button type="button" onclick="setQuantity(1)" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+1</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.05)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.05)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.10)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.10)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.15)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.15)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.20)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.20)|int }}</button>
+                                    <button type="button" onclick="setQuantity({{ (raffle.total_numbers * 0.25)|int }})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium py-2 rounded-lg transition">+{{ (raffle.total_numbers * 0.25)|int }}</button>
+                                </div>
+
+                                <div class="flex items-center space-x-4">
+                                    <button type="button" onclick="decrementQuantity()" class="w-12 h-12 rounded-xl bg-slate-700 text-white hover:bg-slate-600 font-bold text-2xl flex items-center justify-center transition shadow-lg">-</button>
+                                    <input type="number" name="quantity" id="quantity" value="1" min="1" max="{{ raffle.total_numbers - raffle.tickets|length }}" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl text-center text-white font-bold text-xl py-3 focus:ring-2 focus:ring-violet-500 outline-none">
+                                    <button type="button" onclick="incrementQuantity()" class="w-12 h-12 rounded-xl bg-slate-700 text-white hover:bg-slate-600 font-bold text-2xl flex items-center justify-center transition shadow-lg">+</button>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-violet-500/20 flex items-center justify-center gap-2 transform hover:scale-[1.02]">
+                                <span>Comprar Agora</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </form>
+                        <script>
+                            const maxQty = {{ raffle.total_numbers - raffle.tickets|length }};
+                            const input = document.getElementById('quantity');
+
+                            function incrementQuantity() {
+                                let val = parseInt(input.value) || 0;
+                                if (val < maxQty) input.value = val + 1;
+                            }
+                            function decrementQuantity() {
+                                let val = parseInt(input.value) || 0;
+                                if (val > 1) input.value = val - 1;
+                            }
+                            function setQuantity(amount) {
+                                let current = parseInt(input.value) || 0;
+                                let newVal = current + amount;
+                                // Option to add TO current or SET current? 
+                                // User said "adicionar à quantidade que será comprada" (add to quantity to be bought)
+                                // But usually presets set the value. "adicionar" might mean "add to cart" logic or "increase counter".
+                                // Given "opções de adicionar: 1, 10...", let's assume it ADDS to the current input value.
+                                if (newVal > maxQty) newVal = maxQty;
+                                input.value = newVal;
+                            }
+                        </script>
+                    {% endif %}
+                {% else %}
+                    <div class="bg-slate-800/50 p-6 rounded-xl text-center">
+                        <p class="text-slate-400 mb-2">Esta rifa foi encerrada.</p>
+                        {% if raffle.winner_ticket_id %}
+                        <div class="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <p class="text-yellow-500 font-bold text-lg">🏆 Vencedor Sorteado!</p>
+                            <!-- We might not have winner info here unless passed, but dashboard has it. -->
+                        </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Ticket Selection (Manual Only) -->
+        {% if raffle.type == 'manual' and raffle.status == 'active' %}
+        <div class="glass-card p-6 rounded-2xl w-full lg:w-1/2 max-w-2xl">
+            <h2 class="text-xl font-bold text-white mb-4">Escolha seus números</h2>
+            
+            <form action="{{ url_for('buy_ticket', raffle_id=raffle.id) }}" method="POST">
+                <div class="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2 mb-6 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                    {% for i in range(1, raffle.total_numbers + 1) %}
+                        {% set ns = namespace(status='available') %}
+                        {% for ticket in raffle.tickets %}
+                            {% if ticket.number == i %}
+                                {% if ticket.status == 'paid' %}
+                                    {% set ns.status = 'sold' %}
+                                {% else %}
+                                    {% set ns.status = 'reserved' %}
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if ns.status == 'available' %}
+                        <label class="relative cursor-pointer group">
+                            <input type="checkbox" name="numbers" value="{{ i }}" class="peer sr-only">
+                            <div class="aspect-square rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-sm transition peer-checked:bg-violet-600 peer-checked:text-white peer-checked:border-violet-500 peer-checked:shadow-[0_0_10px_rgba(124,58,237,0.5)] hover:border-violet-500/50">
+                                {{ i }}
+                            </div>
+                        </label>
+                        {% elif ns.status == 'sold' %}
+                        <div class="aspect-square rounded-lg bg-slate-900/50 border border-slate-800 flex items-center justify-center text-slate-600 font-bold text-sm cursor-not-allowed" title="Vendido">
+                            {{ i }}
+                        </div>
+                        {% else %}
+                        <div class="aspect-square rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-600 font-bold text-sm cursor-not-allowed" title="Reservado">
+                            {{ i }}
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-slate-400">
+                        <span id="selected-count">0</span> selecionados
+                    </div>
+                </div>
+            </form>
+            
+            <!-- Buy Button outside form -->
+            <div class="mt-4">
+                <button type="button" id="buy-btn" disabled onclick="document.querySelector('form[action*=\'buy_ticket\']').submit()" class="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition shadow-lg shadow-violet-500/20">
+                    Comprar Bilhetes
+                </button>
+            </div>
+        </div>
+
+        <script>
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const countSpan = document.getElementById('selected-count');
+            const buyBtn = document.getElementById('buy-btn');
+
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const count = document.querySelectorAll('input[type="checkbox"]:checked').length;
+                    countSpan.textContent = count;
+                    if(buyBtn) buyBtn.disabled = count === 0;
+                });
+            });
+        </script>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

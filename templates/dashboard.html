@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-3xl font-bold text-white mb-8">Meus Bilhetes</h1>
+
+    <div class="space-y-6">
+        {% for title, data in grouped_tickets.items() %}
+        <div class="glass-card rounded-2xl overflow-hidden border border-slate-800">
+            <!-- Header da Rifa -->
+            <div class="bg-slate-800/50 p-4 flex items-center justify-between cursor-pointer hover:bg-slate-800 transition" onclick="toggleRaffle('{{ loop.index }}')">
+                <div class="flex items-center gap-4">
+                    {% if data.image_url %}
+                    <img src="{{ data.image_url }}" alt="{{ title }}" class="w-12 h-12 rounded-lg object-cover">
+                    {% else %}
+                    <div class="w-12 h-12 rounded-lg bg-slate-700 flex items-center justify-center text-xl">🎁</div>
+                    {% endif %}
+                    <div>
+                        <h3 class="font-bold text-white text-lg">{{ title }}</h3>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-slate-400">{{ data.tickets|length }} bilhetes</span>
+                            {% if data.raffle_status == 'active' %}
+                                <span class="text-green-400 font-bold">• {{ data.raffle_status_text }}</span>
+                            {% else %}
+                                <span class="text-red-400 font-bold">• {{ data.raffle_status_text }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <svg id="arrow-{{ loop.index }}" class="w-6 h-6 text-slate-400 transform transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </div>
+
+            <!-- Corpo (Bilhetes) -->
+            <div id="content-{{ loop.index }}" class="hidden border-t border-slate-800">
+                <div class="p-6">
+                    <!-- Status do Sorteio -->
+                    {% if data.raffle_status != 'active' %}
+                        <div class="mb-6 p-4 rounded-xl {% if data.winner_ticket_id %}bg-yellow-500/10 border border-yellow-500/20{% else %}bg-slate-700/50{% endif %}">
+                            {% if data.winner_ticket_id %}
+                                {% set ns = namespace(winner_found=false) %}
+                                {% for t in data.tickets %}
+                                    {% if t.number is not none and t.number == data.winning_number %}
+                                        {% set ns.winner_found = true %}
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                {% if ns.winner_found %}
+                                    <div class="text-center">
+                                        <p class="text-2xl mb-2">🎉 PARABÉNS! 🎉</p>
+                                        <p class="text-yellow-400 font-bold">Você ganhou este sorteio!</p>
+                                    </div>
+                                {% else %}
+                                    <div class="text-center">
+                                        <p class="text-slate-400 mb-1">O sorteio foi realizado.</p>
+                                        <p class="text-slate-300">Número vencedor: <span class="text-white font-bold text-xl">{{ data.winning_number }}</span></p>
+                                        <p class="text-sm text-slate-500 mt-2">Infelizmente você não ganhou desta vez.</p>
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <p class="text-slate-400 text-center">Sorteio encerrado.</p>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <!-- Sugestão para comprar mais -->
+                        <div class="mb-6 flex justify-between items-center bg-violet-500/10 border border-violet-500/20 p-4 rounded-xl">
+                            <p class="text-violet-200 text-sm">Aumente suas chances de ganhar!</p>
+                            <a href="{{ url_for('raffle_detail', raffle_id=data.raffle_id) }}" class="text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white px-3 py-2 rounded-lg transition">
+                                Comprar Mais
+                            </a>
+                        </div>
+                    {% endif %}
+
+                    <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3">
+                        {% for ticket in data.tickets %}
+                        <div class="relative group">
+                            <div class="aspect-square rounded-xl flex items-center justify-center font-bold text-lg border transition
+                                {% if ticket.number is not none and ticket.number == data.winning_number %}
+                                    bg-yellow-500 text-slate-900 border-yellow-400 shadow-[0_0_15px_rgba(234,179,8,0.5)] scale-110 z-10
+                                {% elif ticket.status == 'paid' %}
+                                    bg-slate-800 text-white border-slate-700 group-hover:border-violet-500
+                                {% else %}
+                                    bg-slate-900 text-slate-500 border-slate-800
+                                {% endif %}">
+                                {% if ticket.number is not none %}
+                                    {{ ticket.number }}
+                                {% else %}
+                                    <span class="text-xs text-slate-600">...</span>
+                                {% endif %}
+                            </div>
+                            {% if ticket.status == 'pending' %}
+                            <div class="absolute -top-2 -right-2 w-4 h-4 bg-yellow-500 rounded-full border-2 border-slate-900" title="Pendente"></div>
+                            {% endif %}
+                            {% if ticket.number is not none and ticket.number == data.winning_number %}
+                            <div class="absolute -top-3 -right-3 text-2xl">👑</div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+            <div class="text-6xl mb-4">🎫</div>
+            <h3 class="text-xl font-bold text-white mb-2">Você ainda não tem bilhetes</h3>
+            <p class="text-slate-400 mb-6">Participe dos nossos sorteios e boa sorte!</p>
+            <a href="{{ url_for('index') }}" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 px-8 rounded-xl transition shadow-lg shadow-violet-500/20">
+                Ver Sorteios
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+    function toggleRaffle(index) {
+        const content = document.getElementById(`content-${index}`);
+        const arrow = document.getElementById(`arrow-${index}`);
+        
+        if (content.classList.contains('hidden')) {
+            content.classList.remove('hidden');
+            arrow.classList.add('rotate-180');
+        } else {
+            content.classList.add('hidden');
+            arrow.classList.remove('rotate-180');
+        }
+    }
+</script>
+{% endblock %}
