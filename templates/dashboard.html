@@ -75,8 +75,10 @@
                     <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3">
                         {% for ticket in data.tickets %}
                         <div class="relative group">
-                            <div class="aspect-square rounded-xl flex items-center justify-center font-bold text-lg border transition
-                                {% if ticket.number is not none and ticket.number == data.winning_number %}
+                            <div class="aspect-square rounded-xl flex flex-col items-center justify-center font-bold text-lg border transition
+                                {% if ticket.payment_status == 'pending' %}
+                                    bg-yellow-900/20 text-yellow-400 border-yellow-600/50 animate-pulse
+                                {% elif ticket.number is not none and ticket.number == data.winning_number %}
                                     bg-yellow-500 text-slate-900 border-yellow-400 shadow-[0_0_15px_rgba(234,179,8,0.5)] scale-110 z-10
                                 {% elif ticket.status == 'paid' %}
                                     bg-slate-800 text-white border-slate-700 group-hover:border-violet-500
@@ -88,10 +90,26 @@
                                 {% else %}
                                     <span class="text-xs text-slate-600">...</span>
                                 {% endif %}
+                                
+                                {% if ticket.payment_status == 'pending' and ticket.time_remaining %}
+                                <div class="text-[10px] mt-1 font-normal" id="timer-{{ ticket.id }}" data-time-remaining="{{ ticket.time_remaining }}">
+                                    <span class="countdown-{{ ticket.id }}">--:--</span>
+                                </div>
+                                {% endif %}
                             </div>
-                            {% if ticket.status == 'pending' %}
+                            
+                            {% if ticket.payment_status == 'pending' %}
+                            <div class="absolute -top-2 -right-2 w-4 h-4 bg-yellow-500 rounded-full border-2 border-slate-900 animate-ping" title="Aguardando Pagamento"></div>
+                            <div class="absolute -top-2 -right-2 w-4 h-4 bg-yellow-500 rounded-full border-2 border-slate-900" title="Aguardando Pagamento"></div>
+                            <button 
+                                onclick="retryPayment({{ ticket.id }})"
+                                class="absolute inset-0 opacity-0 group-hover:opacity-100 transition bg-yellow-600/90 hover:bg-yellow-500 rounded-xl flex items-center justify-center text-xs font-bold text-white">
+                                💳 Pagar
+                            </button>
+                            {% elif ticket.status == 'pending' %}
                             <div class="absolute -top-2 -right-2 w-4 h-4 bg-yellow-500 rounded-full border-2 border-slate-900" title="Pendente"></div>
                             {% endif %}
+                            
                             {% if ticket.number is not none and ticket.number == data.winning_number %}
                             <div class="absolute -top-3 -right-3 text-2xl">👑</div>
                             {% endif %}
@@ -126,6 +144,131 @@
             content.classList.add('hidden');
             arrow.classList.remove('rotate-180');
         }
+    }
+    
+    // Inicializar timers de countdown
+    document.addEventListener('DOMContentLoaded', function() {
+        const timers = document.querySelectorAll('[id^="timer-"]');
+        
+        timers.forEach(timer => {
+            let timeRemaining = parseInt(timer.dataset.timeRemaining);
+            const ticketId = timer.id.replace('timer-', '');
+            const countdownEl = timer.querySelector(`.countdown-${ticketId}`);
+            
+            function updateTimer() {
+                if (timeRemaining <= 0) {
+                    countdownEl.textContent = 'Expirado';
+                    countdownEl.parentElement.parentElement.style.opacity = '0.5';
+                    return;
+                }
+                
+                const minutes = Math.floor(timeRemaining / 60);
+                const seconds = timeRemaining % 60;
+                countdownEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                timeRemaining--;
+                
+                setTimeout(updateTimer, 1000);
+            }
+            
+            updateTimer();
+        });
+    });
+    
+    // Função para tentar pagar novamente
+    async function retryPayment(ticketId) {
+        // Mostrar loading
+        const loadingModal = document.createElement('div');
+        loadingModal.innerHTML = `
+            <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                <div class="bg-slate-900 border border-slate-700 rounded-2xl p-8 text-center">
+                    <div class="w-16 h-16 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p class="text-white font-bold text-lg">Gerando PIX...</p>
+                    <p class="text-slate-400 text-sm mt-2">Aguarde um momento</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(loadingModal.firstElementChild);
+        
+        try {
+            const response = await fetch(`/retry_payment/${ticketId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            const result = await response.json();
+            
+            // Remover loading
+            document.querySelector('.fixed.inset-0').remove();
+            
+            if (result.success) {
+                // Mostrar modal de PIX (reutilizar do checkout)
+                showPixModal(result);
+            } else {
+                alert('Erro: ' + result.error);
+                if (result.error.includes('expirado')) {
+                    location.reload(); // Recarregar para remover bilhete expirado
+                }
+            }
+        } catch (error) {
+            // Remover loading em caso de erro
+            const loadingEl = document.querySelector('.fixed.inset-0');
+            if (loadingEl) loadingEl.remove();
+            alert('Erro ao processar pagamento: ' + error);
+        }
+    }
+    
+    // Modal de PIX (similar ao checkout)
+    function showPixModal(pixData) {
+        const modal = document.createElement('div');
+        modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onclick="this.remove()">
+                <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full" onclick="event.stopPropagation()">
+                    <h2 class="text-2xl font-bold text-white mb-4">Pagamento PIX</h2>
+                    
+                    <div class="bg-white p-4 rounded-xl mb-4">
+                        <img src="${pixData.qr_code}" alt="QR Code PIX" class="w-full">
+                    </div>
+                    
+                    <div class="bg-slate-800 p-3 rounded-lg mb-4">
+                        <p class="text-xs text-slate-400 mb-1">Pix Copia e Cola:</p>
+                        <div class="flex gap-2">
+                            <input type="text" value="${pixData.copy_paste}" readonly 
+                                class="flex-1 bg-slate-700 text-white text-xs px-3 py-2 rounded border border-slate-600">
+                            <button onclick="navigator.clipboard.writeText('${pixData.copy_paste}')" 
+                                class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded font-bold text-sm">
+                                Copiar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <p class="text-sm text-slate-400 mb-4">Aguardando confirmação do pagamento...</p>
+                        <button onclick="location.reload()" 
+                            class="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-xl font-bold">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal.firstElementChild);
+        
+        // Polling para verificar pagamento
+        const txid = pixData.txid;
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/check_payment_status/${txid}`);
+                const data = await response.json();
+                
+                if (data.status === 'paid') {
+                    clearInterval(pollInterval);
+                    alert('Pagamento confirmado! ✅');
+                    location.reload();
+                }
+            } catch (error) {
+                console.error('Erro ao verificar status:', error);
+            }
+        }, 5000);
     }
 </script>
 {% endblock %}

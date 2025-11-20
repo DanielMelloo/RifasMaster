@@ -319,7 +319,7 @@ def buy_ticket(raffle_id):
         try:
             for num in numbers:
                 cursor = db.execute(
-                    'INSERT INTO ticket (user_id, raffle_id, number, status) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO ticket (user_id, raffle_id, number, status, created_at) VALUES (?, ?, ?, ?, datetime("now"))',
                     (current_user.id, raffle_id, num, 'pending')
                 )
                 ticket_ids.append(cursor.lastrowid)
@@ -675,10 +675,97 @@ def efi_webhook():
         print(f"Webhook error: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/retry_payment/<int:ticket_id>', methods=['POST'])
+@login_required
+def retry_payment(ticket_id):
+    """Permite pagar um bilhete pendente"""
+    db = database.get_db()
+    
+    # Buscar bilhete
+    ticket = db.execute('''
+        SELECT t.*, r.title as raffle_title, r.id as raffle_id, r.price, r.promo_price, r.promo_end
+        FROM ticket t
+        JOIN raffle r ON t.raffle_id = r.id
+        WHERE t.id = ? AND t.user_id = ?
+    ''', (ticket_id, current_user.id)).fetchone()
+    
+    if not ticket:
+        return jsonify({'success': False, 'error': 'Bilhete não encontrado'}), 404
+    
+    if ticket['payment_status'] != 'pending':
+        return jsonify({'success': False, 'error': 'Bilhete já foi pago'}), 400
+    
+    # Verificar se não expirou (1 hora)
+    from datetime import datetime as dt, timedelta
+    
+    if not ticket['created_at']:
+        return jsonify({'success': False, 'error': 'Bilhete sem data de criação'}), 400
+    
+    if isinstance(ticket['created_at'], str):
+        created = dt.strptime(ticket['created_at'], '%Y-%m-%d %H:%M:%S')
+    else:
+        created = ticket['created_at']  # Já é datetime
+    
+    expiration = created + timedelta(hours=1)
+    if dt.utcnow() > expiration:  # SQLite usa UTC
+        # Deletar bilhete expirado
+        db.execute('DELETE FROM ticket WHERE id = ?', (ticket_id,))
+        db.commit()
+        return jsonify({'success': False, 'error': 'Bilhete expirado'}), 400
+    
+    # Validar CPF
+    if not current_user.cpf:
+        return jsonify({'success': False, 'error': 'CPF obrigatório para pagamento PIX. Por favor, atualize seu perfil.'}), 400
+    
+    # Calcular preço
+    raffle_data = {
+        'price': ticket['price'],
+        'promo_price': ticket['promo_price'],
+        'promo_end': ticket['promo_end']
+    }
+    amount = get_current_price(raffle_data)
+    
+    # Criar nova cobrança PIX
+    result = efi_service.create_pix_charge(
+        amount=amount,
+        raffle_title=ticket['raffle_title'],
+        raffle_id=ticket['raffle_id'],
+        user_id=current_user.id,
+        tickets_data={'ticket_ids': [ticket_id], 'type': 'manual'},
+        cpf=current_user.cpf
+    )
+    
+    if result['success']:
+        # Atualizar ticket com novo txid
+        db.execute('UPDATE ticket SET payment_txid = ? WHERE id = ?', (result['txid'], ticket_id))
+        db.commit()
+        
+        # Atualizar ou criar Payment record
+        existing_payment = db.execute('SELECT id FROM payment WHERE txid = ?', (ticket['payment_txid'],)).fetchone()
+        if existing_payment:
+            db.execute('UPDATE payment SET txid = ? WHERE id = ?', (result['txid'], existing_payment['id']))
+        else:
+            db.execute('''
+                INSERT INTO payment (txid, user_id, raffle_id, amount, ticket_count, type)
+                VALUES (?, ?, ?, ?, 1, 'manual')
+            ''', (result['txid'], current_user.id, ticket['raffle_id'], amount))
+        db.commit()
+    
+    return jsonify(result)
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
     db = database.get_db()
+    
+    # Limpar bilhetes pendentes expirados (mais de 1 hora)
+    db.execute('''
+        DELETE FROM ticket 
+        WHERE payment_status = 'pending' 
+        AND datetime(created_at, '+1 hour') < datetime('now')
+    ''')
+    db.commit()
+    
     query = '''
         SELECT t.*, r.title as raffle_title, r.status as raffle_status, r.winner_ticket_id, r.image_url
         FROM ticket t
@@ -692,37 +779,66 @@ def dashboard():
     status_map = {'active': 'Ativa', 'closed': 'Encerrada'}
     
     try:
+        from datetime import datetime as dt, timedelta
+        
         # Agrupar tickets por rifa
         grouped_tickets = {}
         for t in tickets:
-            raffle_title = t['raffle_title']
+            # Converter Row para dict para usar .get() com segurança
+            t_dict = dict(t)
+            
+            raffle_title = t_dict['raffle_title']
             if raffle_title not in grouped_tickets:
                 # Se houver vencedor, buscar o número vencedor
                 winning_number = None
-                if t['winner_ticket_id']:
-                    wt = db.execute('SELECT number FROM ticket WHERE id = ?', (t['winner_ticket_id'],)).fetchone()
+                if t_dict.get('winner_ticket_id'):
+                    wt = db.execute('SELECT number FROM ticket WHERE id = ?', (t_dict['winner_ticket_id'],)).fetchone()
                     if wt:
                         winning_number = wt['number']
 
                 grouped_tickets[raffle_title] = {
-                    'raffle_id': t['raffle_id'],
-                    'raffle_status': t['raffle_status'],
-                    'raffle_status_text': status_map.get(t['raffle_status'], t['raffle_status']),
-                    'winner_ticket_id': t['winner_ticket_id'],
+                    'raffle_id': t_dict['raffle_id'],
+                    'raffle_status': t_dict['raffle_status'],
+                    'raffle_status_text': status_map.get(t_dict['raffle_status'], t_dict['raffle_status']),
+                    'winner_ticket_id': t_dict.get('winner_ticket_id'),
                     'winning_number': winning_number,
-                    'image_url': t['image_url'],
+                    'image_url': t_dict.get('image_url'),
                     'tickets': []
                 }
             
+            # Calcular tempo restante para bilhetes pendentes
+            time_remaining = None
+            payment_status = t_dict.get('payment_status', 'paid')  # Default para compatibilidade
+            
+            if payment_status == 'pending' and t_dict.get('created_at'):
+                try:
+                    # SQLite pode retornar string ou datetime
+                    if isinstance(t_dict['created_at'], str):
+                        created = dt.strptime(t_dict['created_at'], '%Y-%m-%d %H:%M:%S')
+                    else:
+                        created = t_dict['created_at']  # Já é datetime
+                    expiration = created + timedelta(hours=1)
+                    now = dt.utcnow()  # SQLite usa UTC por padrão
+                    remaining = (expiration - now).total_seconds()
+                    time_remaining = max(0, int(remaining))
+                except Exception as e:
+                    print(f"Erro ao calcular tempo restante para ticket {t_dict.get('id')}: {e}")
+                    time_remaining = 0
+            
             grouped_tickets[raffle_title]['tickets'].append({
-                'number': t['number'],
-                'status': t['status'],
-                'id': t['id']
+                'number': t_dict.get('number'),
+                'status': t_dict.get('status', 'paid'),
+                'payment_status': payment_status,
+                'id': t_dict.get('id'),
+                'payment_txid': t_dict.get('payment_txid'),
+                'time_remaining': time_remaining
             })
 
         return render_template('dashboard.html', grouped_tickets=grouped_tickets)
     except Exception as e:
         print(f"Erro no dashboard: {e}")
+        import traceback
+        traceback.print_exc()
         flash('Erro ao carregar seus bilhetes. Por favor, contate o suporte.', 'error')
         return render_template('dashboard.html', grouped_tickets={})
 
