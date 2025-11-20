@@ -43,39 +43,130 @@
             </div>
         </div>
 
-        <div class="space-y-4">
-            <h3 class="text-white font-bold mb-4">Forma de Pagamento</h3>
+        <!-- Payment Section -->
+        <div class="space-y-6" id="payment-section">
+            <h3 class="text-white font-bold mb-4">Pagamento via PIX</h3>
             
-            <div class="grid grid-cols-2 gap-4 mb-6">
-                <button type="button" class="p-4 rounded-xl border border-violet-500 bg-violet-500/10 text-white font-medium flex flex-col items-center justify-center gap-2">
-                    <span class="text-2xl">💠</span>
-                    PIX
-                </button>
-                <button type="button" class="p-4 rounded-xl border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700 transition flex flex-col items-center justify-center gap-2">
-                    <span class="text-2xl">💳</span>
-                    Cartão
-                </button>
-            </div>
-
-            <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 text-center mb-6">
-                <p class="text-slate-400 text-sm mb-2">Escaneie o QR Code para pagar</p>
-                <div class="w-48 h-48 bg-white mx-auto rounded-lg flex items-center justify-center mb-2">
-                    <!-- Placeholder QR Code -->
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=RifaMasterPaymentSimulation" alt="QR Code Pix">
-                </div>
-                <p class="text-xs text-slate-500">Pagamento simulado - Aprovação automática</p>
-            </div>
-
-            <form action="{{ url_for('process_payment') }}" method="POST">
-                <input type="hidden" name="ticket_ids" value="{{ ticket_ids }}">
-                <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-green-500/20 flex items-center justify-center gap-2">
-                    <span>Confirmar Pagamento</span>
+            <!-- Initial State: Generate Button -->
+            <div id="generate-container">
+                <p class="text-slate-400 text-sm mb-4 text-center">
+                    Clique abaixo para gerar o QR Code PIX. O pagamento é aprovado automaticamente.
+                </p>
+                <button id="generate-pix-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-green-500/20 flex items-center justify-center gap-2">
+                    <span>Gerar PIX para Pagamento</span>
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                     </svg>
                 </button>
-            </form>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loading-container" class="hidden text-center py-8">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-500 mx-auto mb-4"></div>
+                <p class="text-slate-400">Gerando cobrança PIX...</p>
+            </div>
+
+            <!-- QR Code State -->
+            <div id="pix-container" class="hidden bg-slate-950 p-6 rounded-xl border border-slate-800 text-center">
+                <p class="text-slate-300 font-bold mb-4">Escaneie o QR Code</p>
+                
+                <div class="bg-white p-2 rounded-lg inline-block mb-4">
+                    <img id="pix-qrcode" src="" alt="QR Code Pix" class="w-48 h-48 object-contain">
+                </div>
+                
+                <div class="mb-4">
+                    <p class="text-slate-400 text-xs mb-2">Ou copie e cole o código abaixo:</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="pix-copypaste" readonly class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-slate-300 font-mono">
+                        <button onclick="copyPix()" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded border border-slate-700 transition">
+                            📋
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-center gap-2 text-yellow-500 animate-pulse">
+                    <span class="h-2 w-2 bg-yellow-500 rounded-full"></span>
+                    <span class="text-sm font-bold">Aguardando pagamento...</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+
+<script>
+    const generateBtn = document.getElementById('generate-pix-btn');
+    const generateContainer = document.getElementById('generate-container');
+    const loadingContainer = document.getElementById('loading-container');
+    const pixContainer = document.getElementById('pix-container');
+    const qrCodeImg = document.getElementById('pix-qrcode');
+    const copyPasteInput = document.getElementById('pix-copypaste');
+
+    // Data from server
+    const ticketIds = "{{ ticket_ids }}";
+    const fromSession = "{{ 'true' if from_session else 'false' }}";
+
+    let checkInterval = null;
+
+    generateBtn.addEventListener('click', async () => {
+        // UI Update
+        generateContainer.classList.add('hidden');
+        loadingContainer.classList.remove('hidden');
+
+        try {
+            const formData = new FormData();
+            formData.append('ticket_ids', ticketIds);
+            formData.append('from_session', fromSession);
+
+            const response = await fetch("{{ url_for('create_pix_payment') }}", {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Show QR Code
+                qrCodeImg.src = data.qr_code;
+                copyPasteInput.value = data.copy_paste;
+                
+                loadingContainer.classList.add('hidden');
+                pixContainer.classList.remove('hidden');
+
+                // Start polling
+                startPolling(data.txid);
+            } else {
+                alert('Erro ao gerar PIX: ' + (data.error || 'Erro desconhecido'));
+                loadingContainer.classList.add('hidden');
+                generateContainer.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Erro de conexão. Tente novamente.');
+            loadingContainer.classList.add('hidden');
+            generateContainer.classList.remove('hidden');
+        }
+    });
+
+    function copyPix() {
+        copyPasteInput.select();
+        document.execCommand('copy');
+        alert('Código PIX copiado!');
+    }
+
+    function startPolling(txid) {
+        checkInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/check_payment_status/${txid}`);
+                const data = await response.json();
+
+                if (data.success && data.status === 'paid') {
+                    clearInterval(checkInterval);
+                    window.location.href = "{{ url_for('dashboard') }}";
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }, 5000); // Check every 5 seconds
+    }
+</script>
 {% endblock %}

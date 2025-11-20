@@ -5,7 +5,6 @@ Usando API REST direta (sem SDK)
 import os
 import hashlib
 import hmac
-import base64
 import json
 from datetime import datetime, timedelta
 import requests
@@ -19,117 +18,123 @@ class EfiService:
     
     def __init__(self):
         """Inicializa a conexão com a API da Efí"""
-        # Determinar ambiente (sandbox ou production)
+
         env = os.getenv('EFI_ENVIRONMENT', 'sandbox').lower()
         self.is_sandbox = env == 'sandbox'
-        
-        # Carregar credenciais do ambiente correto
+
         if self.is_sandbox:
             self.client_id = os.getenv('EFI_SANDBOX_CLIENT_ID')
             self.client_secret = os.getenv('EFI_SANDBOX_CLIENT_SECRET')
-            self.certificate_path = os.getenv('EFI_SANDBOX_CERTIFICATE_PATH', 'certs/homologacao.p12')
+            self.certificate_path = os.getenv('EFI_SANDBOX_CERTIFICATE_PATH', 'certs/homologacao.pem')
             self.pix_key = os.getenv('EFI_SANDBOX_PIX_KEY')
             self.base_url = 'https://pix-h.api.efipay.com.br'
         else:
             self.client_id = os.getenv('EFI_PRODUCTION_CLIENT_ID')
             self.client_secret = os.getenv('EFI_PRODUCTION_CLIENT_SECRET')
-            self.certificate_path = os.getenv('EFI_PRODUCTION_CERTIFICATE_PATH', 'certs/producao.p12')
+            self.certificate_path = os.getenv('EFI_PRODUCTION_CERTIFICATE_PATH', 'certs/producao.pem')
             self.pix_key = os.getenv('EFI_PRODUCTION_PIX_KEY')
             self.base_url = 'https://pix.api.efipay.com.br'
-        
-        # Validar credenciais
+
+        # Corrigir .p12 → .pem baseado no ambiente
+        if self.certificate_path.endswith('.p12'):
+            # Tentar trocar extensão diretamente
+            pem = self.certificate_path.replace('.p12', '.pem')
+            if os.path.exists(pem):
+                self.certificate_path = pem
+            else:
+                # Usar certificado correto baseado no ambiente
+                if self.is_sandbox:
+                    if os.path.exists('certs/homologacao.pem'):
+                        self.certificate_path = 'certs/homologacao.pem'
+                else:
+                    if os.path.exists('certs/producao.pem'):
+                        self.certificate_path = 'certs/producao.pem'
+
         if not all([self.client_id, self.client_secret, self.pix_key]):
-            raise ValueError(
-                f"Credenciais da Efí incompletas para ambiente '{env}'. "
-                f"Verifique o arquivo .env"
-            )
-        
+            raise ValueError("Credenciais da Efí incompletas. Verifique o .env")
+
         self.access_token = None
         self.token_expiry = None
-    
+
+    # ==========================================================
+    # TOKEN
+    # ==========================================================
     def _get_access_token(self):
-        """Obtém token de acesso OAuth2"""
-        # Reusar token se ainda válido
+        """Obtém token OAuth2 da Efí"""
+
+        # TEMPORÁRIO: Invalidar token para forçar renovação
+        self.access_token = None
+        self.token_expiry = None
+
+        # Reutilizar se válido
         if self.access_token and self.token_expiry and datetime.now() < self.token_expiry:
             return self.access_token
+
+        print(f"DEBUG: Using cert path: {self.certificate_path}")
         
-        # Gerar novo token
-        auth = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
-        headers = {
-            'Authorization': f'Basic {auth}',
-            'Content-Type': 'application/json'
-        }
-        data = {'grant_type': 'client_credentials'}
+        scope_param = "gn.pix.write gn.pix.read"
+        print(f"DEBUG: Requesting OAuth scopes: {scope_param}")
         
         try:
             response = requests.post(
                 f"{self.base_url}/oauth/token",
-                headers=headers,
-                json=data,
+                data={
+                    "grant_type": "client_credentials",
+                    "scope": scope_param
+                },
+                auth=(self.client_id, self.client_secret),
                 cert=self.certificate_path,
                 verify=True
             )
             response.raise_for_status()
-            
+
             token_data = response.json()
-            self.access_token = token_data['access_token']
-            # Token válido por 1 hora, mas renovamos 5min antes
-            self.token_expiry = datetime.now() + timedelta(seconds=token_data.get('expires_in', 3600) - 300)
-            
+            self.access_token = token_data["access_token"]
+            self.token_expiry = datetime.now() + timedelta(seconds=token_data.get("expires_in", 3600) - 300)
+
             return self.access_token
+
         except Exception as e:
             raise Exception(f"Erro ao obter token: {str(e)}")
-    
-    def create_pix_charge(self, amount, raffle_title, raffle_id, user_id, tickets_data):
+
+    # ==========================================================
+    # CRIAÇÃO DA COBRANÇA PIX
+    # ==========================================================
+    def create_pix_charge(self, amount, raffle_title, raffle_id, user_id, tickets_data, cpf):
         """
-        Cria uma cobrança PIX imediata
-        
-        Args:
-            amount (float): Valor total em reais
-            raffle_title (str): Título da rifa
-            raffle_id (int): ID da rifa
-            user_id (int): ID do usuário
-            tickets_data (dict): Dados dos bilhetes (para meta)
-            
-        Returns:
-            dict: {
-                'success': bool,
-                'txid': str,
-                'qr_code': str (base64),
-                'copy_paste': str,
-                'expiration': str (ISO datetime)
-            }
+        Cria cobrança PIX imediata (geração de QR Code)
         """
+
         try:
             token = self._get_access_token()
-            
-            # Gerar txid único
             txid = self._generate_txid(raffle_id, user_id)
-            
-            # Corpo da requisição
+
+            clean_cpf = ''.join(filter(str.isdigit, str(cpf)))
+            if len(clean_cpf) != 11:
+                return {"success": False, "error": "CPF inválido (11 dígitos necessários)"}
+
             body = {
-                'calendario': {
-                    'expiracao': 900  # 15 minutos em segundos
+                "calendario": {"expiracao": 900},
+                "devedor": {
+                    "nome": f"Usuário {user_id}",
+                    "cpf": clean_cpf
                 },
-                'devedor': {
-                    'nome': f'Usuário {user_id}'
+                "valor": {
+                    "original": f"{amount:.2f}"
                 },
-                'valor': {
-                    'original': f'{amount:.2f}'
-                },
-                'chave': self.pix_key,
-                'solicitacaoPagador': f'Rifa: {raffle_title}',
-                'infoAdicionais': [
-                    {'nome': 'Rifa ID', 'valor': str(raffle_id)},
-                    {'nome': 'User ID', 'valor': str(user_id)}
+                "chave": self.pix_key,
+                "solicitacaoPagador": f"Rifa: {raffle_title}",
+                "infoAdicionais": [
+                    {"nome": "Rifa ID", "valor": str(raffle_id)},
+                    {"nome": "User ID", "valor": str(user_id)},
                 ]
             }
-            
+
             headers = {
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
             }
-            
+
             # Criar cobrança
             response = requests.put(
                 f"{self.base_url}/v2/cob/{txid}",
@@ -139,133 +144,111 @@ class EfiService:
                 verify=True
             )
             response.raise_for_status()
-            
             cob_data = response.json()
+
+            # A resposta já inclui pixCopiaECola, não precisa de outra chamada!
+            pix_code = cob_data.get('pixCopiaECola', '')
             
-            # Gerar QR Code
-            loc_id = cob_data['loc']['id']
-            qrcode_response = requests.get(
-                f"{self.base_url}/v2/loc/{loc_id}/qrcode",
-                headers=headers,
-                cert=self.certificate_path,
-                verify=True
-            )
-            qrcode_response.raise_for_status()
-            
-            qr_data = qrcode_response.json()
-            
-            expiration = datetime.now() + timedelta(minutes=15)
-            
-            return {
-                'success': True,
-                'txid': txid,
-                'loc_id': loc_id,
-                'qr_code': qr_data.get('imagemQrcode', ''),
-                'copy_paste': qr_data.get('qrcode', ''),
-                'expiration': expiration.isoformat(),
-                'status': 'pending'
-            }
+            # Gerar QR Code localmente (evita chamada extra e problema de escopo)
+            if pix_code:
+                import qrcode
+                import io
+                import base64
                 
+                qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                qr.add_data(pix_code)
+                qr.make(fit=True)
+                
+                img = qr.make_image(fill_color="black", back_color="white")
+                buffer = io.BytesIO()
+                img.save(buffer, format='PNG')
+                qr_code_base64 = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+            else:
+                qr_code_base64 = ''
+
+            expiration = datetime.now() + timedelta(minutes=15)
+
+            return {
+                "success": True,
+                "txid": txid,
+                "loc_id": cob_data["loc"]["id"],
+                "qr_code": qr_code_base64,
+                "copy_paste": pix_code,
+                "expiration": expiration.isoformat(),
+                "status": "pending"
+            }
+
         except requests.exceptions.RequestException as e:
-            return {
-                'success': False,
-                'error': f'Erro na API Efí: {str(e)}'
-            }
+            err = f"Erro na API Efí: {str(e)}"
+            if e.response is not None:
+                err += f" | {e.response.text}"
+            return {"success": False, "error": err}
+
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
+    # ==========================================================
+    # CONSULTAR STATUS DO PAGAMENTO
+    # ==========================================================
     def check_payment_status(self, txid):
-        """
-        Consulta o status de um pagamento
-        
-        Args:
-            txid (str): ID da transação
-            
-        Returns:
-            dict: {'status': 'pending'/'paid'/'expired', 'paid_at': datetime or None}
-        """
         try:
             token = self._get_access_token()
-            
-            headers = {
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
-            }
-            
+
             response = requests.get(
                 f"{self.base_url}/v2/cob/{txid}",
-                headers=headers,
+                headers={"Authorization": f"Bearer {token}"},
                 cert=self.certificate_path,
                 verify=True
             )
             response.raise_for_status()
-            
-            cob_data = response.json()
-            
+
+            cob = response.json()
+
             status_map = {
-                'ATIVA': 'pending',
-                'CONCLUIDA': 'paid',
-                'REMOVIDA_PELO_USUARIO_RECEBEDOR': 'cancelled',
-                'REMOVIDA_PELO_PSP': 'expired'
+                "ATIVA": "pending",
+                "CONCLUIDA": "paid",
+                "REMOVIDA_PELO_USUARIO_RECEBEDOR": "cancelled",
+                "REMOVIDA_PELO_PSP": "expired"
             }
-            
-            status = status_map.get(cob_data.get('status'), 'pending')
+
+            status = status_map.get(cob.get("status"), "pending")
             paid_at = None
-            
-            # Se pago, pegar data do pagamento
-            if status == 'paid' and 'pix' in cob_data and len(cob_data['pix']) > 0:
-                paid_at = cob_data['pix'][0].get('horario')
-            
-            return {
-                'success': True,
-                'status': status,
-                'paid_at': paid_at,
-                'raw_response': cob_data
-            }
-                
+
+            if status == "paid" and "pix" in cob and len(cob["pix"]) > 0:
+                paid_at = cob["pix"][0]["horario"]
+
+            return {"success": True, "status": status, "paid_at": paid_at, "raw_response": cob}
+
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
+            return {"success": False, "error": str(e)}
+
+    # ==========================================================
+    # WEBHOOK
+    # ==========================================================
     def validate_webhook(self, payload, signature):
-        """
-        Valida a assinatura do webhook da Efí
-        
-        Args:
-            payload (bytes): Corpo da requisição
-            signature (str): Assinatura enviada no header
-            
-        Returns:
-            bool: True se válido, False caso contrário
-        """
         try:
-            # A Efí envia a assinatura no formato: sha256=<hash>
-            if not signature.startswith('sha256='):
+            if not signature.startswith("sha256="):
                 return False
-            
-            received_hash = signature.replace('sha256=', '')
-            
-            # Calcular hash esperado
-            secret = self.client_secret.encode('utf-8')
-            calculated_hash = hmac.new(secret, payload, hashlib.sha256).hexdigest()
-            
-            # Comparação segura
-            return hmac.compare_digest(calculated_hash, received_hash)
-        except Exception:
+
+            received = signature.replace("sha256=", "")
+            calc = hmac.new(
+                self.client_secret.encode(),
+                payload,
+                hashlib.sha256
+            ).hexdigest()
+
+            return hmac.compare_digest(received, calc)
+
+        except:
             return False
-    
+
+    # ==========================================================
+    # GERAÇÃO DO TXID
+    # ==========================================================
     def _generate_txid(self, raffle_id, user_id):
-        """Gera um txid único para a transação"""
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
         base = f"{raffle_id}{user_id}{timestamp}"
-        # txid deve ter entre 26 e 35 caracteres
         return hashlib.sha256(base.encode()).hexdigest()[:32].upper()
 
 
-# Instância singleton
 efi_service = EfiService()

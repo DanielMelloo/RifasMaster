@@ -94,6 +94,36 @@ def login():
             
     return render_template('login.html')
 
+def validate_cpf(cpf):
+    """Valida um número de CPF (apenas números)"""
+    # Remove caracteres não numéricos
+    cpf = ''.join(filter(str.isdigit, str(cpf)))
+    
+    if len(cpf) != 11:
+        return False
+        
+    # Verifica se todos os dígitos são iguais
+    if cpf == cpf[0] * 11:
+        return False
+        
+    # Calcula primeiro dígito verificador
+    sum_val = sum(int(cpf[i]) * (10 - i) for i in range(9))
+    digit1 = (sum_val * 10) % 11
+    if digit1 == 10: digit1 = 0
+    
+    if digit1 != int(cpf[9]):
+        return False
+        
+    # Calcula segundo dígito verificador
+    sum_val = sum(int(cpf[i]) * (11 - i) for i in range(10))
+    digit2 = (sum_val * 10) % 11
+    if digit2 == 10: digit2 = 0
+    
+    if digit2 != int(cpf[10]):
+        return False
+        
+    return True
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
@@ -103,11 +133,23 @@ def register():
         username = request.form.get('username')
         email = request.form.get('email')
         password = request.form.get('password')
+        cpf = request.form.get('cpf')
+        
+        # Limpar CPF
+        clean_cpf = ''.join(filter(str.isdigit, str(cpf))) if cpf else ''
+        
+        if not validate_cpf(clean_cpf):
+            flash('CPF inválido.', 'error')
+            return redirect(url_for('register'))
         
         db = database.get_db()
         
         if db.execute('SELECT id FROM user WHERE email = ?', (email,)).fetchone():
             flash('Este email já está cadastrado.', 'error')
+            return redirect(url_for('register'))
+            
+        if db.execute('SELECT id FROM user WHERE cpf = ?', (clean_cpf,)).fetchone():
+            flash('Este CPF já está cadastrado.', 'error')
             return redirect(url_for('register'))
             
         hashed_password = generate_password_hash(password)
@@ -119,14 +161,14 @@ def register():
             
         try:
             db.execute(
-                'INSERT INTO user (username, email, password_hash, is_admin) VALUES (?, ?, ?, ?)',
-                (username, email, hashed_password, is_admin)
+                'INSERT INTO user (username, email, password_hash, is_admin, cpf) VALUES (?, ?, ?, ?, ?)',
+                (username, email, hashed_password, is_admin, clean_cpf)
             )
             db.commit()
             
             # Login automático após registro
             user_data = db.execute('SELECT * FROM user WHERE email = ?', (email,)).fetchone()
-            user = User(user_data['id'], user_data['username'], user_data['email'], user_data['password_hash'], user_data['is_admin'])
+            user = User(user_data['id'], user_data['username'], user_data['email'], user_data['password_hash'], user_data['is_admin'], user_data['cpf'])
             login_user(user)
             
             flash('Conta criada com sucesso! Por favor, complete seu perfil para poder receber prêmios.', 'success')
@@ -146,13 +188,27 @@ def profile():
         address = request.form.get('address')
         cpf = request.form.get('cpf')
         
+        # Limpar e validar CPF
+        clean_cpf = ''.join(filter(str.isdigit, str(cpf))) if cpf else ''
+        
+        if clean_cpf and not validate_cpf(clean_cpf):
+            flash('CPF inválido.', 'error')
+            return redirect(url_for('profile'))
+        
         db = database.get_db()
         try:
+            # Verificar se CPF já existe (exceto para o próprio usuário)
+            if clean_cpf:
+                existing = db.execute('SELECT id FROM user WHERE cpf = ? AND id != ?', (clean_cpf, current_user.id)).fetchone()
+                if existing:
+                    flash('Este CPF já está em uso por outra conta.', 'error')
+                    return redirect(url_for('profile'))
+
             db.execute('''
                 UPDATE user 
                 SET full_name = ?, phone = ?, pix_key = ?, address = ?, cpf = ?
                 WHERE id = ?
-            ''', (full_name, phone, pix_key, address, cpf, current_user.id))
+            ''', (full_name, phone, pix_key, address, clean_cpf, current_user.id))
             db.commit()
             flash('Perfil atualizado com sucesso!', 'success')
             return redirect(url_for('profile'))
@@ -392,79 +448,232 @@ def checkout():
         flash('Carrinho vazio.', 'error')
         return redirect(url_for('index'))
 
-@app.route('/process_payment', methods=['POST'])
+@app.route('/create_pix_payment', methods=['POST'])
 @login_required
-def process_payment():
+def create_pix_payment():
+    """Cria uma cobrança PIX via Efí e retorna QR Code"""
     db = database.get_db()
     
-    # Verificar se é compra da sessão (fazendinha) ou ticket_ids (manual)
-    if 'pending_purchase' in session:
-        # FAZENDINHA: Criar tickets AGORA (após pagamento)
-        purchase = session['pending_purchase']
-        raffle_id = purchase['raffle_id']
-        quantity = purchase['quantity']
+    # Obter dados do checkout
+    ticket_ids_str = request.form.get('ticket_ids', '')
+    from_session = request.form.get('from_session') == 'true'
+    
+    try:
+        ticket_ids = []
+        raffle_id = None
+        raffle_title = None
+        total_amount = 0
         
-        try:
-            # Buscar rifa para verificar disponibilidade
+        if from_session and 'pending_purchase' in session:
+            # --- FAZENDINHA: Apenas calcular valor, tickets serão criados no webhook ---
+            purchase = session['pending_purchase']
+            raffle_id = purchase['raffle_id']
+            raffle_title = purchase['raffle_title']
+            quantity = purchase['quantity']
+            
+            # Verificar disponibilidade
             raffle = db.execute('SELECT * FROM raffle WHERE id = ?', (raffle_id,)).fetchone()
             if not raffle or raffle['status'] != 'active':
-                flash('Rifa não disponível.', 'error')
-                return redirect(url_for('index'))
+                return jsonify({'success': False, 'error': 'Rifa indisponível'}), 400
             
-            # Buscar números já usados
-            used_numbers_rows = db.execute('SELECT number FROM ticket WHERE raffle_id = ? AND number IS NOT NULL', (raffle_id,)).fetchall()
-            used_numbers = {row['number'] for row in used_numbers_rows}
+            # Verificar se há números suficientes (sem reservar ainda)
+            used_count = db.execute('SELECT COUNT(*) as count FROM ticket WHERE raffle_id = ?', (raffle_id,)).fetchone()['count']
+            if (raffle['total_numbers'] - used_count) < quantity:
+                return jsonify({'success': False, 'error': 'Não há números suficientes disponíveis'}), 400
             
-            available = [n for n in range(1, raffle['total_numbers'] + 1) if n not in used_numbers]
-            
-            if len(available) < quantity:
-                raise Exception(f"Não há números suficientes disponíveis")
-                
-            selected_numbers = random.sample(available, quantity)
-            
-            # Criar tickets já com status='paid' e número atribuído
-            for number in selected_numbers:
-                db.execute(
-                    'INSERT INTO ticket (user_id, raffle_id, number, status) VALUES (?, ?, ?, ?)',
-                    (current_user.id, raffle_id, number, 'paid')
-                )
-            
-            db.commit()
+            # Calcular preço total
+            raffle_data = {
+                'price': float(raffle['price']),
+                'promo_price': float(raffle['promo_price']) if raffle['promo_price'] else None,
+                'promo_end': raffle['promo_end']
+            }
+            effective_price = get_current_price(raffle_data)
+            total_amount = effective_price * quantity
             
             # Limpar sessão
             session.pop('pending_purchase', None)
             
-            flash('Pagamento confirmado! Seus números foram gerados.', 'success')
-            return redirect(url_for('dashboard'))
+            tickets_data = {
+                'quantity': quantity,
+                'type': 'fazendinha'
+            }
             
-        except Exception as e:
-            db.rollback()
-            flash(f'Erro ao processar pagamento: {e}', 'error')
-            return redirect(url_for('index'))
-    
-    else:
-        # MANUAL: Atualizar tickets existentes
-        ticket_ids_str = request.form.get('ticket_ids')
-        try:
+        elif ticket_ids_str:
+            # --- MANUAL: Tickets já existem ---
             ticket_ids = [int(id) for id in ticket_ids_str.split(',')]
-        except:
-            return redirect(url_for('index'))
+            
+            placeholders = ','.join(['?'] * len(ticket_ids))
+            query = f'''
+                SELECT t.*, r.title as raffle_title, r.price, r.promo_price, r.promo_end, r.id as raffle_id
+                FROM ticket t 
+                JOIN raffle r ON t.raffle_id = r.id 
+                WHERE t.id IN ({placeholders}) AND t.user_id = ?
+            '''
+            params = ticket_ids + [current_user.id]
+            
+            tickets = db.execute(query, params).fetchall()
+            
+            if not tickets:
+                return jsonify({'success': False, 'error': 'Bilhetes não encontrados'}), 404
+            
+            raffle_id = tickets[0]['raffle_id']
+            raffle_title = tickets[0]['raffle_title']
+            
+            # Calcular total
+            for t in tickets:
+                raffle_data = {
+                    'price': t['price'],
+                    'promo_price': t['promo_price'],
+                    'promo_end': t['promo_end']
+                }
+                total_amount += get_current_price(raffle_data)
+            
+            tickets_data = {
+                'ticket_ids': ticket_ids,
+                'type': 'manual'
+            }
+        else:
+            return jsonify({'success': False, 'error': 'Dados inválidos'}), 400
         
-        if not ticket_ids:
-            return redirect(url_for('index'))
+        # Validar CPF do usuário
+        if not current_user.cpf:
+            return jsonify({'success': False, 'error': 'CPF obrigatório para pagamento PIX. Por favor, atualize seu perfil.'}), 400
 
-        # Marcar como pagos
-        placeholders = ','.join(['?'] * len(ticket_ids))
-        try:
-            db.execute(f'UPDATE ticket SET status = "paid" WHERE id IN ({placeholders}) AND user_id = ?', ticket_ids + [current_user.id])
-            db.commit()
-            flash('Pagamento confirmado!', 'success')
-        except Exception as e:
-            db.rollback()
-            flash(f'Erro ao processar pagamento: {e}', 'error')
-            return redirect(url_for('index'))
+        # Criar cobrança PIX via Efí
+        result = efi_service.create_pix_charge(
+            amount=total_amount,
+            raffle_title=raffle_title,
+            raffle_id=raffle_id,
+            user_id=current_user.id,
+            tickets_data=tickets_data,
+            cpf=current_user.cpf
+        )
         
-        return redirect(url_for('dashboard'))
+        if result['success']:
+            # Registrar intenção de pagamento
+            db.execute('''
+                INSERT INTO payment (txid, user_id, raffle_id, amount, ticket_count, type)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                result['txid'], 
+                current_user.id, 
+                raffle_id, 
+                total_amount, 
+                quantity if from_session else len(ticket_ids),
+                'fazendinha' if from_session else 'manual'
+            ))
+            
+            # Se for manual, vincular tickets ao txid
+            if not from_session:
+                for tid in ticket_ids:
+                    db.execute('UPDATE ticket SET payment_txid = ? WHERE id = ?', (result['txid'], tid))
+            
+            db.commit()
+            
+        if not result['success']:
+            # Se falhar e for fazendinha, talvez devêssemos deletar os tickets? 
+            # Por enquanto deixamos como pending (vão expirar/ficar abandonados)
+            return jsonify(result), 400
+        
+        # Atualizar tickets com txid e dados do PIX
+        for ticket_id in ticket_ids:
+            db.execute('''
+                UPDATE ticket 
+                SET payment_txid = ?, payment_status = 'pending', 
+                    pix_qrcode = ?, pix_copy_paste = ?, 
+                    payment_expiration = ?
+                WHERE id = ?
+            ''', (result['txid'], result['qr_code'], result['copy_paste'], 
+                  result['expiration'], ticket_id))
+        db.commit()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def process_successful_payment(txid):
+    """Processa o pagamento confirmado: atualiza status e gera tickets se necessário"""
+    db = database.get_db()
+    payment = db.execute('SELECT * FROM payment WHERE txid = ?', (txid,)).fetchone()
+    
+    if not payment or payment['status'] == 'paid':
+        return
+
+    # Atualizar pagamento
+    db.execute('UPDATE payment SET status = "paid", updated_at = CURRENT_TIMESTAMP WHERE id = ?', (payment['id'],))
+    
+    if payment['type'] == 'manual':
+        # Atualizar tickets existentes
+        db.execute('''
+            UPDATE ticket 
+            SET payment_status = 'paid', status = 'paid', paid_at = CURRENT_TIMESTAMP
+            WHERE payment_txid = ?
+        ''', (txid,))
+        
+    elif payment['type'] == 'fazendinha':
+        # Gerar tickets agora
+        raffle_id = payment['raffle_id']
+        quantity = payment['ticket_count']
+        user_id = payment['user_id']
+        
+        raffle = db.execute('SELECT total_numbers FROM raffle WHERE id = ?', (raffle_id,)).fetchone()
+        used_numbers_rows = db.execute('SELECT number FROM ticket WHERE raffle_id = ? AND number IS NOT NULL', (raffle_id,)).fetchall()
+        used_numbers = {row['number'] for row in used_numbers_rows}
+        
+        available = [n for n in range(1, raffle['total_numbers'] + 1) if n not in used_numbers]
+        
+        if len(available) >= quantity:
+            selected_numbers = random.sample(available, quantity)
+            effective_price = payment['amount'] / quantity
+            
+            for number in selected_numbers:
+                db.execute('''
+                    INSERT INTO ticket (user_id, raffle_id, number, status, payment_status, total_price, payment_txid, paid_at)
+                    VALUES (?, ?, ?, 'paid', 'paid', ?, ?, CURRENT_TIMESTAMP)
+                ''', (user_id, raffle_id, number, effective_price, txid))
+    
+    db.commit()
+
+@app.route('/check_payment_status/<txid>', methods=['GET'])
+@login_required
+def check_payment_status(txid):
+    """Consulta status de pagamento PIX"""
+    try:
+        result = efi_service.check_payment_status(txid)
+        
+        if result.get('success') and result.get('status') == 'paid':
+            process_successful_payment(txid)
+            
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/webhook/efi', methods=['POST'])
+def efi_webhook():
+    """Recebe notificações de pagamento da Efí"""
+    try:
+        # Validar assinatura
+        signature = request.headers.get('X-Efi-Signature', '')
+        payload = request.get_data()
+        
+        if not efi_service.validate_webhook(payload, signature):
+            return jsonify({'error': 'Invalid signature'}), 401
+        
+        data = request.get_json()
+        
+        # Processar notificação PIX
+        if 'pix' in data:
+            for pix in data.get('pix', []):
+                txid = pix.get('txid')
+                if txid:
+                    process_successful_payment(txid)
+        
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/dashboard')
 @login_required

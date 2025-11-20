@@ -44,51 +44,80 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #64748b; 
         }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(124, 58, 237, 0.5);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(124, 58, 237, 0.8);
+        }
     </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="text-slate-200 min-h-screen flex flex-col">
 
+<body class="text-slate-200 min-h-screen flex flex-col">
     <!-- Navigation -->
     <nav class="glass-nav fixed w-full z-50 top-0">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-20">
                 <div class="flex items-center gap-2">
-                    <a href="{{ url_for('index') }}" class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent hover:opacity-80 transition">
+                    <a href="{{ url_for('index') }}"
+                        class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent hover:opacity-80 transition">
                         RifaMaster
                     </a>
                 </div>
-                
+
                 <!-- Desktop Menu -->
                 <div class="hidden md:block">
                     <div class="ml-10 flex items-baseline space-x-4">
-                        <a href="{{ url_for('index') }}" class="hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Início</a>
+                        <a href="{{ url_for('index') }}"
+                            class="hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Início</a>
                         {% if current_user.is_authenticated %}
-                            <a href="{{ url_for('dashboard') }}" class="hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Meus Bilhetes</a>
-                            {% if current_user.is_admin %}
-                                <a href="{{ url_for('admin_panel') }}" class="text-violet-400 hover:bg-violet-500/10 px-3 py-2 rounded-md text-sm font-medium transition border border-violet-500/20">Admin</a>
-                            {% endif %}
-                            <div class="ml-4 flex items-center gap-4 border-l border-slate-700 pl-4">
-                                <span class="text-slate-400 text-sm hidden md:inline">Olá, <span class="text-white font-medium">{{ current_user.username }}</span></span>
-                                
-                                <a href="{{ url_for('profile') }}" class="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 font-medium transition text-sm border border-slate-700">
-                                    👤 Meu Perfil
-                                </a>
-                                
-                                <a href="{{ url_for('logout') }}" class="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 font-medium transition text-sm border border-red-500/20">
-                                    Sair
-                                </a>
-                            </div>
+                        <a href="{{ url_for('dashboard') }}"
+                            class="hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Meus
+                            Bilhetes</a>
+                        {% if current_user.is_admin %}
+                        <a href="{{ url_for('admin_panel') }}"
+                            class="text-violet-400 hover:bg-violet-500/10 px-3 py-2 rounded-md text-sm font-medium transition border border-violet-500/20">Admin</a>
+                        {% endif %}
+                        <div class="ml-4 flex items-center gap-4 border-l border-slate-700 pl-4">
+                            <span class="text-slate-400 text-sm hidden md:inline">Olá, <span
+                                    class="text-white font-medium">{{ current_user.username }}</span></span>
+
+                            <a href="{{ url_for('profile') }}"
+                                class="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 font-medium transition text-sm border border-slate-700">
+                                👤 Meu Perfil
+                            </a>
+
+                            <a href="{{ url_for('logout') }}"
+                                class="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 font-medium transition text-sm border border-red-500/20">
+                                Sair
+                            </a>
+                        </div>
                         {% else %}
-                            <a href="{{ url_for('login') }}" class="text-white hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Entrar</a>
-                            <a href="{{ url_for('register') }}" class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition shadow-lg shadow-violet-500/20">Criar Conta</a>
+                        <a href="{{ url_for('login') }}"
+                            class="text-white hover:bg-white/5 px-3 py-2 rounded-md text-sm font-medium transition">Entrar</a>
+                        <a href="{{ url_for('register') }}"
+                            class="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition shadow-lg shadow-violet-500/20">Criar
+                            Conta</a>
                         {% endif %}
                     </div>
                 </div>
                 <div class="-mr-2 flex md:hidden">
-                    <button type="button" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')" class="inline-flex items-center justify-center p-2 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 focus:outline-none transition">
+                    <button type="button" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')"
+                        class="inline-flex items-center justify-center p-2 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 focus:outline-none transition">
                         <span class="sr-only">Abrir menu</span>
-                        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
                     </button>
                 </div>
@@ -98,25 +127,37 @@
         <!-- Mobile Menu -->
         <div class="hidden md:hidden bg-slate-900/95 backdrop-blur-xl border-b border-slate-800" id="mobile-menu">
             <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-                <a href="{{ url_for('index') }}" class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Início</a>
+                <a href="{{ url_for('index') }}"
+                    class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Início</a>
                 {% if current_user.is_authenticated %}
-                    <a href="{{ url_for('dashboard') }}" class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Meus Bilhetes</a>
-                    {% if current_user.is_admin %}
-                        <a href="{{ url_for('admin_panel') }}" class="text-violet-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-medium">Painel Admin</a>
-                    {% endif %}
-                    <a href="{{ url_for('profile') }}" class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Meu Perfil</a>
-                    <div class="border-t border-slate-800 mt-4 pt-4 pb-2">
-                        <div class="flex items-center px-3 mb-3">
-                            <div class="ml-3">
-                                <div class="text-base font-medium leading-none text-white">{{ current_user.username }}</div>
-                                <div class="text-sm font-medium leading-none text-slate-400 mt-1">{{ current_user.email }}</div>
+                <a href="{{ url_for('dashboard') }}"
+                    class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Meus
+                    Bilhetes</a>
+                {% if current_user.is_admin %}
+                <a href="{{ url_for('admin_panel') }}"
+                    class="text-violet-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-medium">Painel
+                    Admin</a>
+                {% endif %}
+                <a href="{{ url_for('profile') }}"
+                    class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Meu
+                    Perfil</a>
+                <div class="border-t border-slate-800 mt-4 pt-4 pb-2">
+                    <div class="flex items-center px-3 mb-3">
+                        <div class="ml-3">
+                            <div class="text-base font-medium leading-none text-white">{{ current_user.username }}</div>
+                            <div class="text-sm font-medium leading-none text-slate-400 mt-1">{{ current_user.email }}
                             </div>
                         </div>
-                        <a href="{{ url_for('logout') }}" class="text-red-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-medium">Sair</a>
                     </div>
+                    <a href="{{ url_for('logout') }}"
+                        class="text-red-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-medium">Sair</a>
+                </div>
                 {% else %}
-                    <a href="{{ url_for('login') }}" class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Entrar</a>
-                    <a href="{{ url_for('register') }}" class="text-violet-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-bold">Criar Conta</a>
+                <a href="{{ url_for('login') }}"
+                    class="text-slate-300 hover:bg-slate-800 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Entrar</a>
+                <a href="{{ url_for('register') }}"
+                    class="text-violet-400 hover:bg-slate-800 block px-3 py-2 rounded-md text-base font-bold">Criar
+                    Conta</a>
                 {% endif %}
             </div>
         </div>
@@ -126,20 +167,24 @@
     <main class="flex-grow pt-24 pb-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <!-- Background Elements -->
         <div class="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-            <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-violet-900/20 blur-[100px]"></div>
-            <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-fuchsia-900/20 blur-[100px]"></div>
+            <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-violet-900/20 blur-[100px]">
+            </div>
+            <div
+                class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-fuchsia-900/20 blur-[100px]">
+            </div>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="max-w-7xl mx-auto mb-8 space-y-2">
-                    {% for category, message in messages %}
-                        <div class="p-4 rounded-lg backdrop-blur-md border {% if category == 'error' %}bg-red-500/10 border-red-500/20 text-red-200{% else %}bg-green-500/10 border-green-500/20 text-green-200{% endif %} shadow-lg animate-fade-in-down">
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
+        {% if messages %}
+        <div class="max-w-7xl mx-auto mb-8 space-y-2">
+            {% for category, message in messages %}
+            <div
+                class="p-4 rounded-lg backdrop-blur-md border {% if category == 'error' %}bg-red-500/10 border-red-500/20 text-red-200{% else %}bg-green-500/10 border-green-500/20 text-green-200{% endif %} shadow-lg animate-fade-in-down">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% endwith %}
 
         {% block content %}{% endblock %}
@@ -156,12 +201,21 @@
 
     <style>
         @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
+
         .animate-fade-in-down {
             animation: fadeInDown 0.3s ease-out forwards;
         }
     </style>
 </body>
+
 </html>
