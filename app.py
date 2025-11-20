@@ -19,6 +19,9 @@ app.config['DATABASE'] = os.path.join(app.root_path, 'rifamaster.db')
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static/uploads')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max-limit
 
+# Configuração para subpath (nginx proxy)
+app.config['APPLICATION_ROOT'] = os.getenv('APPLICATION_ROOT', '/')
+
 # Garantir que pasta de uploads existe
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
