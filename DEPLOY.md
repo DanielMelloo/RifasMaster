@@ -53,10 +53,9 @@ Description=RifaMaster Flask App
 After=network.target
 
 [Service]
-User=seu_usuario
-WorkingDirectory=/caminho/para/Rifas
-Environment="PATH=/caminho/para/Rifas/venv/bin"
-ExecStart=/caminho/para/Rifas/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
+WorkingDirectory=/home/ec2-user/RifasMaster
+Environment="PATH=/home/ec2-user/RifasMaster/venv/bin"
+ExecStart=/home/ec2-user/RifasMaster/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8002 app:app
 
 [Install]
 WantedBy=multi-user.target
