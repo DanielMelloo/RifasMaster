@@ -767,7 +767,7 @@ def dashboard():
     db.execute('''
         DELETE FROM ticket 
         WHERE payment_status = 'pending' 
-        AND datetime(created_at, '+1 hour') < datetime('now')
+        AND datetime(purchase_date, '+1 hour') < datetime('now')
     ''')
     db.commit()
     
@@ -1121,6 +1121,25 @@ def delete_raffle(raffle_id):
     db.commit()
     
     flash(f'Rifa "{raffle["title"]}" deletada com sucesso!', 'success')
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete_all_raffles', methods=['POST'])
+@login_required
+def delete_all_raffles():
+    """Deleta TODAS as rifas e tickets (Perigo!)"""
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('index'))
+    
+    db = database.get_db()
+    
+    # Deletar tudo
+    db.execute('DELETE FROM ticket')
+    db.execute('DELETE FROM raffle')
+    db.execute('DELETE FROM payment') # Opcional: limpar pagamentos também para resetar total
+    db.commit()
+    
+    flash('TODAS as rifas e dados relacionados foram apagados com sucesso.', 'success')
     return redirect(url_for('admin_panel'))
 
 
